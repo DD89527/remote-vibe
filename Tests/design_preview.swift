@@ -60,6 +60,9 @@ enum DesignPreview {
             remote.selectItem(at: profile == .chromecast ? 0 : 1)
             let tabs = NSSegmentedControl(labels: [L("按键映射"), L("连招解锁")], trackingMode: .selectOne, target: nil, action: nil)
             tabs.selectedSegment = 0; tabs.isHidden = profile == .xiaomiRC003
+            let voiceInput = NSPopUpButton()
+            voiceInput.addItems(withTitles: [L("语音：微信"), L("语音：VoiceKey")])
+            voiceInput.selectItem(at: 1)
             let shell = SettingsView(mapping: view, unlock: combo, remote: remote,
                 discovery: SettingsTheme.button(L("扫描遥控器")), pages: tabs,
                 connection: NSTextField(wrappingLabelWithString: L("等待遥控器连接")),
@@ -68,7 +71,7 @@ enum DesignPreview {
                 permissionsButton: SettingsTheme.button(L("权限设置")),
                 message: NSTextField(wrappingLabelWithString: L("准备就绪后，在当前输入框里按住语音键说话。")),
                 readiness: NSTextField(labelWithString: L("语音待就绪 · ") + L("连接遥控器")),
-                wechatButton: SettingsTheme.button(L("微信试说说明")))
+                wechatButton: SettingsTheme.button(L("语音设置")), voiceInput: voiceInput)
             let window = NSWindow(contentRect: shell.bounds, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             let scroll = SettingsScrollView(frame: shell.bounds)
             scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.scrollerStyle = .overlay

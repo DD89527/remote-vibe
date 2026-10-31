@@ -487,3 +487,26 @@
 "已导出此型号的普通键位和鼠标键位" = "Exported this model’s normal and mouse bindings.";
 "暂无可用的配置备份" = "No configuration backup is available yet.";
 "遥控语音 · 语音中" = "Remote Vibe · Speaking";
+
+/* VoiceKey dictation integration. */
+"语音：微信" = "Voice: WeChat";
+"语音：VoiceKey" = "Voice: VoiceKey";
+"微信" = "WeChat";
+"语音设置" = "Voice setup";
+"语音识别软件" = "Dictation app";
+"右 ⌥" = "Right ⌥";
+"右 ⌘" = "Right ⌘";
+"右 ⌃" = "Right ⌃";
+"请先打开 VoiceKey 并完成设置" = "Open VoiceKey and finish setup first";
+"请在 VoiceKey 中选择 Chromecast Mic 或系统默认麦克风" = "Select Chromecast Mic or the system default microphone in VoiceKey";
+"无法读取 VoiceKey 长按快捷键，请在 VoiceKey 中重新设置" = "Cannot read the VoiceKey hold shortcut; configure it again in VoiceKey";
+"请将 VoiceKey 的长按快捷键与点按快捷键分开" = "Use separate hold and tap shortcuts in VoiceKey";
+"VoiceKey 长按快捷键：%@" = "VoiceKey hold shortcut: %@";
+"正在准备%@语音输入…" = "Preparing %@ dictation…";
+"正在结束，文字由%@生成…" = "Finishing; %@ will transcribe…";
+"快捷键已被按住或没有权限，请重试" = "Shortcut already held or permission missing; try again";
+"设备与权限已就绪 · %@语音请试说确认" = "Device and permissions ready · Test %@ dictation";
+"语音设备已就绪 · 自定义按键需输入监控 · %@请试说确认" = "Voice device ready · Custom keys need Input Monitoring · Test %@";
+"已选择%@，按住语音键说话，松开结束。" = "Selected %@. Hold the voice button to speak, release to finish.";
+"确认%@语音能出字" = "Test %@ dictation";
+"1. 打开 VoiceKey，允许辅助功能和麦克风权限。\n2. 在 VoiceKey 的音频设置中选择 Chromecast Mic 或系统默认，然后离开音频预览页。\n3. 长按快捷键与点按快捷键需分开，例如长按右 ⌘、点按 Fn。Remote Vibe 自动读取长按设置，不会修改 VoiceKey。\n4. 点击目标文本框，按住遥控器语音键说话，松开结束。\n\n空闲时 Remote Vibe 不采音；识别结果由 VoiceKey 处理。" = "1. Open VoiceKey and allow Accessibility and Microphone access.\n2. Select Chromecast Mic or the system default in VoiceKey audio settings, then leave the level-preview page.\n3. Use separate hold and tap shortcuts, for example hold Right Command and tap Fn. Remote Vibe reads the hold shortcut without changing VoiceKey.\n4. Focus a text field, hold the remote voice button to speak, and release to finish.\n\nRemote Vibe does not capture audio while idle. VoiceKey handles transcription.";

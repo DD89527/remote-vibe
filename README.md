@@ -4,7 +4,7 @@
 
 原生 Swift / AppKit 菜单栏应用，无第三方运行时。一次使用一只遥控器，两种型号的配置独立保存。
 
-- **按住说话**：遥控器麦克风收音，通过微信的全局语音输入转成文字。
+- **按住说话**：遥控器麦克风收音，通过微信或 VoiceKey 转成文字。VoiceKey 模式会读取现有的长按快捷键，不修改其配置。
 - **自定义按键**：单击、双击、长按可绑定快捷键、常用文本、应用、网页和窗口操作。
 - **鼠标模式**：一键切换，独立配置四方向移动和左右点击；按住移动、松开停止。
 - **按需工作**：手动扫描新设备，连接后停止扫描；关闭设置窗口后继续运行。
@@ -25,11 +25,13 @@ https://github.com/user-attachments/assets/4cbc3415-3314-42ce-bcce-033f001962ea
 
 ## 开始使用
 
-需要 **Apple Silicon 或 Intel Mac、macOS 15+**。语音输入还需要微信支持“长按 Fn 全局语音输入”。
+需要 **Apple Silicon 或 Intel Mac、macOS 15+**。语音输入需要微信的“长按 Fn 全局语音输入”，或已打开的 VoiceKey。
 
 1. 从 [Releases](https://github.com/jmeviler/remote-vibe/releases) 按芯片选择完整安装包：M 系列选 `Mac-AppleSilicon.zip`，Intel 选 `Mac-Intel.zip`；解压后按其中的说明安装 Remote Vibe 和语音组件。
 2. 在系统蓝牙设置中配对遥控器，打开 App 选择型号，并按提示开启权限。
 3. 启用微信全局语音输入，点击目标文本框，按住遥控器语音键说话，松开出字。
+
+使用 **VoiceKey**：在窗口顶部选择“语音：VoiceKey”；在 VoiceKey 中把麦克风设为 `Chromecast Mic` 或系统默认，并让长按键与点按键分开（例如长按右 ⌘、点按 Fn）。离开 VoiceKey 的音频电平预览页后，按住遥控器语音键说话、松开结束。详见 [VoiceKey 适配](Docs/VOICEKEY.md)。
 
 Intel 版已加入云端构建与隔离测试，真实遥控器和微信语音尚待验证。
 

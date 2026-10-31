@@ -2,7 +2,7 @@
 
 当前约定：长按遥控器时使用遥控器麦克风；松开后处理完音频尾段，再恢复原输入。这个行为保持不变。
 
-虚拟声卡基于开源 [BlackHole](https://github.com/ExistentialAudio/BlackHole) 的 Core Audio HAL 插件实现，定制为独立 `RemoteVibeMic.driver`、单声道 48 kHz、输入可作为默认设备且输出不可作为默认设备。Google 和小米共用它；转文字由微信完成。上游版本、改动及 GPL v3 许可证见 [Driver/SOURCE.md](../Driver/SOURCE.md)，分享包包含对应源码。
+虚拟声卡基于开源 [BlackHole](https://github.com/ExistentialAudio/BlackHole) 的 Core Audio HAL 插件实现，定制为独立 `RemoteVibeMic.driver`、单声道 48 kHz、输入可作为默认设备且输出不可作为默认设备。Google 和小米共用它；转文字由选定的微信或 VoiceKey 完成。上游版本、改动及 GPL v3 许可证见 [Driver/SOURCE.md](../Driver/SOURCE.md)，分享包包含对应源码。
 
 ## 本机观察
 

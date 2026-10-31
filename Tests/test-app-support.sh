@@ -19,6 +19,6 @@ print(f'PASS: {len(keys)} UI/status localization keys and format arguments.')
 PY
 mkdir -p build/tests
 xcrun swiftc -swift-version 5 -parse-as-library -target "$remote_vibe_swift_target" \
-  Sources/App/Localization.swift Sources/App/ReleaseUpdate.swift Tests/app_support_test.swift \
+  Sources/App/Localization.swift Sources/App/ReleaseUpdate.swift Sources/Input/VoiceInput.swift Tests/app_support_test.swift \
   -o build/tests/app-support
 build/tests/app-support

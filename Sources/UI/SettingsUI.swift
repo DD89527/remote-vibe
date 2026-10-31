@@ -215,7 +215,7 @@ final class SettingsView: SettingsPage {
     override var isFlipped: Bool { true }
     init(mapping: NSView, unlock: NSView, remote: NSPopUpButton, discovery: NSButton, pages: NSSegmentedControl,
          connection: NSTextField, audio: NSTextField, permission: NSTextField, permissionsButton: NSButton, message: NSTextField,
-         readiness: NSTextField, wechatButton: NSButton) {
+         readiness: NSTextField, wechatButton: NSButton, voiceInput: NSPopUpButton? = nil) {
         super.init(frame: NSRect(origin: .zero, size: Self.size))
         appearance = NSAppearance(named: .aqua)
         func place(_ view: NSView, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat) {
@@ -228,6 +228,11 @@ final class SettingsView: SettingsPage {
         readiness.lineBreakMode = .byTruncatingTail
         readiness.setAccessibilityLabel(L("使用就绪状态"))
         place(readiness, 30, 96, 750, 19)
+        if let voiceInput {
+            voiceInput.font = .systemFont(ofSize: 12, weight: .medium)
+            voiceInput.setAccessibilityLabel(L("语音识别软件"))
+            place(voiceInput, 535, 24, 188, 32)
+        }
         remote.font = .systemFont(ofSize: 12, weight: .medium)
         remote.setAccessibilityLabel(L("当前遥控器"))
         place(remote, 737, 24, 168, 32)

@@ -46,6 +46,15 @@ jobs:
           zsh Scripts/build-app.sh
           zsh Scripts/build-driver.sh
           zsh Scripts/package.sh
+      - name: Render settings preview (no hardware or input injection)
+        run: |
+          zsh Tests/preview-design.sh voicekey-zh zh-Hans
+          zsh Tests/preview-design.sh voicekey-en en
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: VoiceKey-Preview-${{ matrix.chip }}
+          path: build/design/
+          if-no-files-found: error
       - name: Verify packaged architecture, installer and source
         run: python3 Tests/package_test.py --arch "$REMOTE_VIBE_ARCH" --check-installer
       - uses: actions/upload-artifact@v7.0.2
