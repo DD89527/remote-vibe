@@ -157,6 +157,7 @@ final class RemoteStage: SettingsPanel {
 final class ActionPreview: SettingsPanel {
     var binding: ButtonAction? { didSet { needsDisplay = true } }
     var voice = false { didSet { needsDisplay = true } }
+    var voiceToggle = false { didSet { needsDisplay = true } }
     override func draw(_ dirtyRect: NSRect) {
         fill = SettingsTheme.canvas; border = nil; radius = 12
         super.draw(dirtyRect)
@@ -185,7 +186,7 @@ final class ActionPreview: SettingsPanel {
             let symbol: String
             let title: String
             let detail: String
-            if voice { symbol = "waveform"; title = L("按住说话，松开结束。"); detail = L("使用遥控器自带麦克风") }
+            if voice { symbol = "waveform"; title = voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松开结束。"); detail = L("使用遥控器自带麦克风") }
             else if binding == nil { symbol = "plus"; title = L("为这个手势，留一个位置。"); detail = L("从上方菜单选择一个动作") }
             else {
                 switch binding!.kind {
@@ -215,7 +216,8 @@ final class SettingsView: SettingsPage {
     override var isFlipped: Bool { true }
     init(mapping: NSView, unlock: NSView, remote: NSPopUpButton, discovery: NSButton, pages: NSSegmentedControl,
          connection: NSTextField, audio: NSTextField, permission: NSTextField, permissionsButton: NSButton, message: NSTextField,
-         readiness: NSTextField, wechatButton: NSButton, voiceInput: NSPopUpButton? = nil) {
+         readiness: NSTextField, wechatButton: NSButton, voiceInput: NSPopUpButton? = nil,
+         voiceActivation: NSPopUpButton? = nil) {
         super.init(frame: NSRect(origin: .zero, size: Self.size))
         appearance = NSAppearance(named: .aqua)
         func place(_ view: NSView, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat) {
@@ -227,11 +229,16 @@ final class SettingsView: SettingsPage {
         readiness.maximumNumberOfLines = 1
         readiness.lineBreakMode = .byTruncatingTail
         readiness.setAccessibilityLabel(L("使用就绪状态"))
-        place(readiness, 30, 96, 750, 19)
+        place(readiness, 30, 96, voiceActivation == nil ? 750 : 480, 19)
         if let voiceInput {
             voiceInput.font = .systemFont(ofSize: 12, weight: .medium)
             voiceInput.setAccessibilityLabel(L("语音识别软件"))
             place(voiceInput, 535, 24, 188, 32)
+        }
+        if let voiceActivation {
+            voiceActivation.font = .systemFont(ofSize: 12, weight: .medium)
+            voiceActivation.setAccessibilityLabel(L("语音触发方式"))
+            place(voiceActivation, 535, 77, 188, 30)
         }
         remote.font = .systemFont(ofSize: 12, weight: .medium)
         remote.setAccessibilityLabel(L("当前遥控器"))

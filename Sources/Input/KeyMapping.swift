@@ -279,6 +279,7 @@ final class KeyMapping {
     private var voiceButton: UInt8?
     var onVoicePress: () -> Bool = { false }
     var onVoiceRelease: (Bool) -> Void = { _ in }
+    var canStopVoice: () -> Bool = { false }
     var mappedVoiceHeld: Bool { voiceButton != nil }
     private var repeats: [UInt8: Timer] = [:]
     private var gestures = ButtonGestureRecognizer()
@@ -568,6 +569,17 @@ final class KeyMapping {
         }
         if !added.isDisjoint(with: capturedButtons), pressed.count > 1 {
             if captureReady { onCapturedPress?(0) }
+            return
+        }
+        // While recording, only a configured voice key may bypass the ordinary
+        // action block, and only to stop the already-latched voice session.
+        if capturedButtons.isEmpty, pendingCapture == nil, canStopVoice(),
+           buttons.contains(where: { button in
+               guard added.contains(button.code), activeShortcuts.contains(button.code) else { return false }
+               let binding = activeBinding(button)
+               return [binding.singleClick, binding.doubleClick, binding.longPress].contains { $0?.kind == .remoteVoice }
+           }) {
+            _ = onVoicePress()
             return
         }
         // An immediate toggle takes priority; gesture bindings must still wait for recognition.

@@ -157,3 +157,7 @@ VoiceKey 适配测试版
 
 窗口顶部选择“语音：VoiceKey”。在 VoiceKey 中把麦克风设为 Chromecast Mic 或系统默认，然后离开音频电平预览页。长按与点按快捷键需分开，例如长按右 Command、点按 Fn。Remote Vibe 自动读取长按设置，不改写 VoiceKey 配置。
 按住遥控器语音键开始，松开结束。更多说明见随附源码中的 Docs/VOICEKEY.md。本 fork 不代替上游正式发布；真实遥控器和 VoiceKey 上屏仍需用户试说确认。
+
+0.4.11 点按开关更新
+
+Google ATVV 1.0 默认使用“点按开关”：遥控器语音键按一下开始录音，松手后继续收音，再按一下结束。VoiceKey 的长按快捷键由 Remote Vibe 自动保持/释放，你不需要按住遥控器或键盘。支持原语音键和映射为遥控器麦克风的普通键。小米仍保留按住说话；旧 Google 协议请选择“按住说话”。

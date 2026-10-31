@@ -510,3 +510,22 @@
 "已选择%@，按住语音键说话，松开结束。" = "Selected %@. Hold the voice button to speak, release to finish.";
 "确认%@语音能出字" = "Test %@ dictation";
 "1. 打开 VoiceKey，允许辅助功能和麦克风权限。\n2. 在 VoiceKey 的音频设置中选择 Chromecast Mic 或系统默认，然后离开音频预览页。\n3. 长按快捷键与点按快捷键需分开，例如长按右 ⌘、点按 Fn。Remote Vibe 自动读取长按设置，不会修改 VoiceKey。\n4. 点击目标文本框，按住遥控器语音键说话，松开结束。\n\n空闲时 Remote Vibe 不采音；识别结果由 VoiceKey 处理。" = "1. Open VoiceKey and allow Accessibility and Microphone access.\n2. Select Chromecast Mic or the system default in VoiceKey audio settings, then leave the level-preview page.\n3. Use separate hold and tap shortcuts, for example hold Right Command and tap Fn. Remote Vibe reads the hold shortcut without changing VoiceKey.\n4. Focus a text field, hold the remote voice button to speak, and release to finish.\n\nRemote Vibe does not capture audio while idle. VoiceKey handles transcription.";
+
+/* Click-to-toggle recording. */
+"点按开关" = "Click to toggle";
+"按住说话" = "Hold to talk";
+"按一下开始，再按一下结束。" = "Press once to start. Press again to finish.";
+"语音键按一下开始，再按一下结束。" = "Press the voice button once to start, and again to finish.";
+"语音键，按一下开始或结束录音" = "Voice button, press once to start or stop recording";
+"遥控器麦克风 · 点按开关" = "Remote microphone · Click to toggle";
+"遥控器麦克风（点按开关）" = "Remote microphone (click to toggle)";
+"触发后持续收音，再按一次该键结束。需要 Google ATVV 1.0。" = "Recording continues after release. Press this button again to finish. Requires Google ATVV 1.0.";
+"语音触发方式" = "Voice activation mode";
+"点按开关需要 Google ATVV 1.0，请切换按住说话" = "Click to toggle requires Google ATVV 1.0; select Hold to talk";
+"小米目前保留按住说话；点按开关支持 Google ATVV 1.0" = "Xiaomi retains Hold to talk; click to toggle supports Google ATVV 1.0";
+"正在录音 · 再按一次语音键结束" = "Recording · Press the voice button again to finish";
+"录音已结束 · 按一下语音键开始" = "Recording ended · Press the voice button to start";
+"已选择%@ · 语音键按一下开始，再按一下结束" = "Selected %@ · Press the voice button to start, and again to finish";
+"VoiceKey 使用 Chromecast Mic 或系统默认输入，并设置独立的长按快捷键（如右 ⌘）。离开音频电平预览页。Remote Vibe 会自动保持和释放快捷键，无需手按键盘。" = "In VoiceKey, select Chromecast Mic or the system default and a separate hold shortcut, such as Right Command. Leave the audio level preview page. Remote Vibe holds and releases the shortcut for you; you do not need to hold a keyboard key.";
+"启用微信的长按 Fn 全局语音输入，麦克风选择 Chromecast Mic 或系统默认。Fn 由 Remote Vibe 自动保持和释放，无需手按键盘。" = "Enable WeChat global hold-Fn dictation and select Chromecast Mic or the system default. Remote Vibe holds and releases Fn for you; you do not need to hold a keyboard key.";
+"语音键按一下开始，再按一下结束；松手不会结束。结束后等待文字出现。" = "Press the voice button once to start, and again to finish. Releasing the button does not stop recording. Wait for the text after finishing.";

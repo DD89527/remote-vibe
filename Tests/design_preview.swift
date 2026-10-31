@@ -53,6 +53,7 @@ enum DesignPreview {
         for profile in RemoteProfile.allCases {
             let mapping = KeyMapping(profile: profile)
             let view = KeyMappingView(mapping: mapping)
+            view.voiceToggle = profile == .chromecast
             let combo = ComboUnlockView(controller: ComboUnlock(), allowPermissions: {})
             combo.isHidden = true
             let remote = NSPopUpButton()
@@ -63,6 +64,10 @@ enum DesignPreview {
             let voiceInput = NSPopUpButton()
             voiceInput.addItems(withTitles: [L("语音：微信"), L("语音：VoiceKey")])
             voiceInput.selectItem(at: 1)
+            let activation = NSPopUpButton()
+            activation.addItems(withTitles: [L("点按开关"), L("按住说话")])
+            activation.selectItem(at: profile == .chromecast ? 0 : 1)
+            activation.isEnabled = profile == .chromecast
             let shell = SettingsView(mapping: view, unlock: combo, remote: remote,
                 discovery: SettingsTheme.button(L("扫描遥控器")), pages: tabs,
                 connection: NSTextField(wrappingLabelWithString: L("等待遥控器连接")),
@@ -71,7 +76,7 @@ enum DesignPreview {
                 permissionsButton: SettingsTheme.button(L("权限设置")),
                 message: NSTextField(wrappingLabelWithString: L("准备就绪后，在当前输入框里按住语音键说话。")),
                 readiness: NSTextField(labelWithString: L("语音待就绪 · ") + L("连接遥控器")),
-                wechatButton: SettingsTheme.button(L("语音设置")), voiceInput: voiceInput)
+                wechatButton: SettingsTheme.button(L("语音设置")), voiceInput: voiceInput, voiceActivation: activation)
             let window = NSWindow(contentRect: shell.bounds, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             let scroll = SettingsScrollView(frame: shell.bounds)
             scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.scrollerStyle = .overlay

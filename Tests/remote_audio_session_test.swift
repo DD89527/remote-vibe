@@ -61,7 +61,77 @@ enum RemoteAudioSessionTest {
         try preservePhysicalVoice()
         try cancellationAndLimit()
         try protocolVariants()
-        print("PASS: software open, release/tail, stale responses, timeout, cancellation, keepalive, Google/Xiaomi physical voice; no Bluetooth or audio devices used.")
+        try nativeClickToggle()
+        try quickClickToggle()
+        try mappedClickToggle()
+        try toggleFailures()
+        print("PASS: physical/mapped click-to-toggle, software continuation after release, balanced logical sessions, stale replies, failure cleanup, keepalive and original hold behavior; no Bluetooth or audio devices used.")
+    }
+
+    static func nativeClickToggle() throws {
+        for stopWithSearch in [true, false] {
+            let r = try Rig(); r.session.activation = .toggle
+            r.start(42, reason: 3); r.audio()
+            r.stop(2) // First release must not end VoiceKey's logical session.
+            precondition(r.begins == 1 && r.ends.isEmpty && r.session.opening && r.count([0x0c, 0]) == 1)
+            r.start(); r.audio(); r.clock.advance(61)
+            precondition(r.session.streaming && r.session.toggled && r.begins == 1 && r.ends.isEmpty)
+            precondition(r.count([0x0e, 0]) >= 15) // Keep the actual REMOTE microphone alive.
+            if stopWithSearch { r.session.receive(.startSearch) }
+            else { r.start(43, reason: 3); precondition(r.count([0x0d, 43]) == 1) }
+            precondition(!r.session.toggled && r.count([0x0d, 0]) == 1)
+            r.stop()
+            precondition(r.ends == [true] && !r.session.busy && r.clock.pending == 0)
+            r.stop(2); r.audio(); r.clock.advance(10)
+            precondition(r.begins == 1 && r.ends == [true] && r.count([0x0c, 0]) == 1)
+        }
+    }
+
+    static func quickClickToggle() throws {
+        let r = try Rig(); r.session.activation = .toggle
+        r.session.receive(.startSearch); r.stop(2) // Release before MIC_OPEN reply.
+        precondition(r.session.opening)
+        r.start(); r.audio()
+        precondition(r.begins == 1 && r.ends.isEmpty)
+        r.session.receive(.startSearch); r.stop()
+        precondition(r.ends == [true] && r.clock.pending == 0)
+
+        let pending = try Rig(); pending.session.activation = .toggle
+        pending.start(42, reason: 3); pending.audio(); pending.stop(2)
+        pending.session.receive(.startSearch) // Second click while the continuation opens.
+        precondition(pending.ends == [true] && !pending.session.busy)
+        pending.start(); pending.audio(); pending.stop() // Late reply must not restart.
+        precondition(pending.begins == 1 && pending.ends == [true] && pending.clock.pending == 0)
+    }
+
+    static func mappedClickToggle() throws {
+        let r = try Rig(); r.session.activation = .toggle
+        for _ in 0..<5 {
+            precondition(r.session.beginMappedVoice())
+            r.start(); r.audio(); r.session.endMappedVoice(normal: true)
+            r.clock.advance(60)
+            precondition(r.session.mappedToggleActive && r.session.streaming)
+            precondition(r.session.beginMappedVoice()) // Second press stops.
+            r.stop()
+            precondition(!r.session.busy && r.clock.pending == 0)
+        }
+        precondition(r.begins == 5 && r.ends == Array(repeating: true, count: 5))
+    }
+
+    static func toggleFailures() throws {
+        for reply in [true, false] {
+            let r = try Rig(); r.session.activation = .toggle
+            r.start(42, reason: 3); r.audio(); r.stop(2)
+            if reply { r.start() } // With no subsequent audio, the watchdog must still fire.
+            r.clock.advance(1.6)
+            precondition(r.ends == [false] && !r.session.toggled)
+            r.stop(); r.clock.advance(2)
+            precondition(r.begins == 1 && r.clock.pending == 0)
+        }
+        let disconnected = try Rig(); disconnected.session.activation = .toggle
+        disconnected.start(42, reason: 3); disconnected.audio(); disconnected.stop(2)
+        disconnected.start(); disconnected.audio(); disconnected.session.reset()
+        precondition(disconnected.ends == [false] && !disconnected.session.toggled && disconnected.clock.pending == 0)
     }
 
     static func directOpenAndTail() throws {

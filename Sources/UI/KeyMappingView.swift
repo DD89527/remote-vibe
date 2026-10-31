@@ -75,6 +75,7 @@ private final class RemoteDiagram: NSView {
 }
 
 final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegate {
+    var voiceToggle = false { didSet { displaySelection() } }
     override var isFlipped: Bool { true }
     private let mapping: KeyMapping
     private var normalDrafts: KeyMapping.Bindings
@@ -353,7 +354,10 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
             button.selected = code == selected
             if let physical = mapping.buttons.first(where: { $0.code == code }) {
                 button.toolTip = "\(physical.name) → \(KeyMapping.binding(physical, normal: normalDrafts, mouse: mouseDrafts, inMouseMode: editingMouse).summary)"
-            } else { button.toolTip = L("按住说话，松开结束") }
+            } else {
+                button.toolTip = voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松开结束")
+                button.setAccessibilityLabel(voiceToggle ? L("语音键，按一下开始或结束录音") : L("语音键，按住说话"))
+            }
         }
         let voice = selected == 0
         nameLabel.stringValue = selectedButton?.name ?? L("语音键")
@@ -364,7 +368,8 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         if let voiceIndex = presets.firstIndex(where: { $0.binding?.kind == .remoteVoice }), let item = presetItem(voiceIndex) {
             item.isHidden = mapping.profile != .chromecast
             item.isEnabled = selectedTrigger != .doubleClick
-            item.title = selectedTrigger == .longPress ? L("遥控器麦克风（长按后开麦）") : presets[voiceIndex].title
+            item.title = selectedTrigger == .longPress ? L("遥控器麦克风（长按后开麦）") :
+                voiceToggle ? L("遥控器麦克风（点按开关）") : presets[voiceIndex].title
         }
         for (index, preset) in presets.enumerated() {
             if preset.binding?.kind == .toggleMouseMode {
@@ -390,7 +395,7 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
     }
 
     private func displayOptions() {
-        currentLabel.stringValue = selected == 0 ? L("遥控器麦克风 · 按住说话") :
+        currentLabel.stringValue = selected == 0 ? (voiceToggle ? L("遥控器麦克风 · 点按开关") : L("遥控器麦克风 · 按住说话")) :
             L("已保存 · %@：%@", selectedTrigger.title, mapping.binding(selectedButton!, mouse: editingMouse)[selectedTrigger].map(ActionCatalog.displayName) ?? L("未设置"))
         currentLabel.toolTip = currentLabel.stringValue
 
@@ -403,6 +408,7 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         actionPreview.isHidden = hasEditor
         actionPreview.binding = selectedConfiguration[selectedTrigger]
         actionPreview.voice = selected == 0 || selectedBinding.kind == .remoteVoice
+        actionPreview.voiceToggle = voiceToggle
         let app = selected != 0 && selectedBinding.kind == .openApp
         let webpage = selected != 0 && selectedBinding.kind == .openURL
         targetLabel.isHidden = !app && !webpage
@@ -420,11 +426,11 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         } else if selectedBinding.isMouseAction {
             hint.stringValue = L("在指针当前位置点击一次，按住不会重复点击。\n连续按两次左键可双击。")
         } else if selected == 0 {
-            hint.stringValue = L("使用%@遥控器自带麦克风，按住收音、松开结束。\n", mapping.profile.title) +
+            hint.stringValue = voiceToggle ? L("语音键按一下开始，再按一下结束。") : L("使用%@遥控器自带麦克风，按住收音、松开结束。\n", mapping.profile.title) +
                 (mapping.profile == .chromecast ? L("普通键也可选择“遥控器麦克风”动作（需 ATVV 1.0）。") : L("小米目前仅支持原语音键开启麦克风。"))
         }
         else if selectedBinding.kind == .remoteVoice {
-            hint.stringValue = selectedTrigger == .longPress ?
+            hint.stringValue = voiceToggle ? L("触发后持续收音，再按一次该键结束。需要 Google ATVV 1.0。") : selectedTrigger == .longPress ?
                 L("按住约 0.55 秒后开启 Google 遥控器麦克风，松开结束。\n需要 ATVV 1.0；旧协议请使用原语音键。") :
                 L("按下开启 Google 遥控器麦克风，松开结束。\n需要 ATVV 1.0；旧协议请使用原语音键。")
         }

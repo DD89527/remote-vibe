@@ -27,6 +27,10 @@ final class BluetoothRemote: NSObject, CBCentralManagerDelegate, CBPeripheralDel
     var frameCount: Int { audio.frameCount }
     var voiceBusy: Bool { audio.busy }
     var mappedVoiceActive: Bool { audio.source == .mappedButton }
+    var activation: VoiceActivation { get { audio.activation } set { audio.activation = newValue } }
+    var mappedToggleActive: Bool { audio.mappedToggleActive }
+    var toggled: Bool { audio.toggled }
+    var supportsToggle: Bool { profile == .chromecast && proto.capabilities?.version == .v10 }
 
     var protocolSummary: String {
         guard let caps = proto.capabilities, let codec = proto.codec else { return L("等待协商") }

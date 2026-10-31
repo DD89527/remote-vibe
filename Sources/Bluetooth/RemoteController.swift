@@ -24,6 +24,10 @@ final class RemoteController {
     var sourceName: String { profile.title }
     var xiaomiReady: Bool { profile == .xiaomiRC003 && ready }
     var protocolSummary: String { device.protocolSummary }
+    var activation = VoiceActivation.hold { didSet { device.activation = activation } }
+    var mappedToggleActive: Bool { device.mappedToggleActive }
+    var toggled: Bool { device.toggled }
+    var supportsToggle: Bool { device.supportsToggle }
     var scanning: Bool { device.scanning }
     var connecting: Bool { device.connecting }
     var scanStarts: Int { device.scanStarts }
@@ -32,6 +36,7 @@ final class RemoteController {
         guard profile != device.profile else { return }
         device.shutdown()
         device = BluetoothRemote(profile: profile)
+        device.activation = activation
         UserDefaults.standard.set(profile.rawValue, forKey: "voiceRemote.v1")
         start()
     }
@@ -65,6 +70,7 @@ final class RemoteController {
     }
 
     func beginMappedVoice() -> Bool {
+        if device.mappedToggleActive { return device.beginMappedVoice() }
         guard profile == .chromecast, ready, !voiceBusy, canBegin(profile) else { return false }
         return device.beginMappedVoice()
     }
