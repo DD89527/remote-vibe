@@ -218,6 +218,11 @@ enum ButtonGestureUITest {
         }
         selectButton(0)
         precondition(!trigger.isEnabled && !action.isEnabled && !reset.isEnabled)
+        if profile == .chromecast {
+            view.voiceToggle = true
+            precondition(trigger.selectedSegment == 0, "Click-to-toggle must not display Hold as its selected gesture")
+            view.voiceToggle = false
+        }
         precondition(mapping.bindings.isEmpty && !mapping.listening)
         window.orderOut(nil)
     }

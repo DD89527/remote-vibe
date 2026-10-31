@@ -74,7 +74,7 @@ enum DesignPreview {
                 audio: NSTextField(wrappingLabelWithString: L("语音组件：已就绪")),
                 permission: NSTextField(wrappingLabelWithString: L("辅助功能：%@\n输入监控：%@", L("已允许"), L("已允许"))),
                 permissionsButton: SettingsTheme.button(L("权限设置")),
-                message: NSTextField(wrappingLabelWithString: L("准备就绪后，在当前输入框里按住语音键说话。")),
+                message: NSTextField(wrappingLabelWithString: profile == .chromecast ? L("录音已结束 · 按一下语音键开始") : L("准备就绪后，在当前输入框里按住语音键说话。")),
                 readiness: NSTextField(labelWithString: L("语音待就绪 · ") + L("连接遥控器")),
                 wechatButton: SettingsTheme.button(L("语音设置")), voiceInput: voiceInput, voiceActivation: activation)
             let window = NSWindow(contentRect: shell.bounds, styleMask: [.titled, .resizable], backing: .buffered, defer: false)

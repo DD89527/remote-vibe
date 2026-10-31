@@ -360,6 +360,7 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
             }
         }
         let voice = selected == 0
+        if voice && voiceToggle { triggerPicker.selectedSegment = 0 }
         nameLabel.stringValue = selectedButton?.name ?? L("语音键")
         triggerPicker.isEnabled = !voice
         presetItem(0)?.title = selectedTrigger == .singleClick ? L("原按键功能") : L("未设置")
