@@ -532,5 +532,4 @@
 "应用切换 · ← → 选择，OK 确认，返回取消" = "App switcher · ← → select, OK confirm, Back cancel";
 "应用切换未启动，请松开键盘修饰键并检查权限" = "Could not open the app switcher; release keyboard modifiers and check permissions";
 "← → 选择应用，OK 确认，返回取消。" = "← → select an app, OK confirm, Back cancel.";
-"切换应用" = "Switch apps";
-"← → 选择 · OK 确认 · 返回取消" = "← → select · OK confirm · Back cancel";
+"打开系统应用切换栏" = "Open the system app switcher";

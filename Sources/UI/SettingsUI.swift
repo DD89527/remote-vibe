@@ -164,7 +164,7 @@ final class ActionPreview: SettingsPanel {
         func text(_ value: String, at point: NSPoint, size: CGFloat, color: NSColor, weight: NSFont.Weight = .medium) {
             (value as NSString).draw(at: point, withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color])
         }
-        if let binding, binding.kind == .key, binding.appSwitcherReverse == nil, !voice {
+        if let binding, binding.kind == .key, !voice {
             let flags = CGEventFlags(rawValue: binding.modifiers)
             var keys = [(CGEventFlags.maskControl, "⌃"), (.maskAlternate, "⌥"), (.maskShift, "⇧"), (.maskCommand, "⌘"), (.maskSecondaryFn, "Fn")]
                 .filter { flags.contains($0.0) }.map { $0.1 }
@@ -181,16 +181,15 @@ final class ActionPreview: SettingsPanel {
                 (key as NSString).draw(at: NSPoint(x: x + (width - size.width) / 2, y: 16 + (49 - size.height) / 2), withAttributes: attrs)
                 x += width + 8
             }
-            text(binding.isFn ? L("仅模拟 Fn · 使用目标软件选择的麦克风") : L("发送到当前应用"), at: NSPoint(x: 18, y: 85), size: 11, color: SettingsTheme.secondary)
+            let caption = binding.appSwitcherReverse != nil ? L("打开系统应用切换栏") :
+                binding.isFn ? L("仅模拟 Fn · 使用目标软件选择的麦克风") : L("发送到当前应用")
+            text(caption, at: NSPoint(x: 18, y: 85), size: 11, color: SettingsTheme.secondary)
         } else {
             let symbol: String
             let title: String
             let detail: String
             if voice { symbol = "waveform"; title = voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松开结束。"); detail = L("使用遥控器自带麦克风") }
             else if binding == nil { symbol = "plus"; title = L("为这个手势，留一个位置。"); detail = L("从上方菜单选择一个动作") }
-            else if binding!.appSwitcherReverse != nil {
-                symbol = "square.stack.3d.up"; title = L("切换应用"); detail = L("← → 选择 · OK 确认 · 返回取消")
-            }
             else {
                 switch binding!.kind {
                 case .toggleMouseMode: symbol = "cursorarrow"; title = binding!.title; detail = L("按一次进入，再按一次退出")
