@@ -6,6 +6,7 @@ enum AppSwitcherTests {
         var flags: CGEventFlags = []
         var physical: CGEventFlags = []
         var keys = Set<CGKeyCode>()
+        var mirrorPostedToHID = false
         var now: TimeInterval = 0
         var events: [CGEvent] = []
         var ended = 0
@@ -14,7 +15,16 @@ enum AppSwitcherTests {
                 flags: { [unowned self] in self.flags },
                 hardwareFlags: { [unowned self] in self.physical },
                 keyDown: { [unowned self] in self.keys.contains($0) },
-                post: { [unowned self] event in self.events.append(event); self.flags = event.flags },
+                post: { [unowned self] event in
+                    self.events.append(event); self.flags = event.flags
+                    if self.mirrorPostedToHID {
+                        self.physical = event.flags
+                        if event.type == .flagsChanged && event.getIntegerValueField(.keyboardEventKeycode) == 55 {
+                            if event.flags.contains(.maskCommand) { self.keys.insert(55) }
+                            else { self.keys.remove(55) }
+                        }
+                    }
+                },
                 clock: { [unowned self] in self.now }, automaticLifecycle: false)
             value.onEnd = { [unowned self] in self.ended += 1 }
             return value
@@ -82,9 +92,22 @@ enum AppSwitcherTests {
         precondition(external.switcher.open(reverse: false))
         external.flags.formUnion(.maskShift)
         external.physical = [.maskCommand, .maskShift]
-        external.switcher.externalInput(marker: 0)
+        external.switcher.externalInput(marker: 0, commandPressed: true)
         precondition(!external.switcher.active && external.keyCodes(.keyDown) == [48])
-        precondition(external.flags == [.maskCommand, .maskShift]) // Preserve real hardware state.
+        precondition(external.flags == [.maskCommand, .maskShift]) // Preserve an explicit incoming physical Command-down.
+
+        let polluted = Environment()
+        polluted.mirrorPostedToHID = true
+        for index in 0..<50 {
+            precondition(polluted.switcher.open(reverse: index % 2 == 0))
+            // Real macOS mirrors the injected Command into BOTH state tables.
+            precondition(polluted.physical.contains(.maskCommand) && polluted.keys.contains(55))
+            if index % 3 == 0 { polluted.switcher.perform(.confirm) }
+            else if index % 3 == 1 { polluted.switcher.perform(.cancel) }
+            else { polluted.switcher.externalInput(marker: 0) }
+            precondition(polluted.flags.isEmpty && polluted.physical.isEmpty && !polluted.keys.contains(55), "Our Command must never survive session end")
+        }
+        precondition(polluted.switcher.opens == 50 && polluted.switcher.closes == 50)
 
         let revoked = Environment()
         precondition(revoked.switcher.open(reverse: false))
@@ -109,7 +132,7 @@ enum AppSwitcherTests {
             precondition(!repeated.switcher.active && repeated.flags.isEmpty)
         }
         precondition(repeated.switcher.opens == 30 && repeated.switcher.closes == 30)
-        print("PASS: interactive app switcher, balanced modifiers, navigation, confirmation, cancellation, timeout, external input, permissions and 30 repeated sessions (events never posted).")
+        print("PASS: interactive app switcher, balanced modifiers, navigation, cancellation, timeout, external input, permissions, 30 repeated sessions and 50 HID-mirrored Command-release regressions (events never posted).")
     }
 
     private static func compatibility() throws {

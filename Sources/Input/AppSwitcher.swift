@@ -129,18 +129,24 @@ final class AppSwitcher {
 
     // Keyboard/mouse input may already have dismissed the system overlay. Only
     // release our modifier here; another Escape could reach an unrelated app.
-    func externalInput(marker: Int64) {
+    func externalInput(marker: Int64, commandPressed: Bool = false) {
         guard active, marker != Self.eventMarker else { return }
-        finish(cancel: false)
+        finish(cancel: false, commandPressed: commandPressed)
     }
 
-    private func finish(cancel: Bool) {
+    private func finish(cancel: Bool, commandPressed: Bool = false) {
         guard active, let release else { return }
         active = false
         timer?.invalidate(); timer = nil
         monitors.forEach(NSEvent.removeMonitor); monitors.removeAll()
-        // Preserve physical keyboard modifiers; the private source owns only ⌘.
-        release.flags = flags().subtracting(.maskCommand).union(hardwareFlags().intersection(Self.modifiers))
+        // Posting to cghidEventTap also updates the HID state table, even with a
+        // private source. Its Command bit can therefore be OUR held modifier.
+        // Copying it back into Command-up leaves key 55 down and blocks reopening.
+        // Preserve Command only for an actual incoming Command-key press, never
+        // by querying that contaminated state table during our own release.
+        let others = Self.modifiers.subtracting(.maskCommand)
+        release.flags = flags().subtracting(.maskCommand).union(hardwareFlags().intersection(others))
+        if commandPressed { release.flags.insert(.maskCommand) }
         if cancel { escape.forEach(post) }
         post(release)
         self.release = nil; source = nil; escape.removeAll()
@@ -169,12 +175,17 @@ final class AppSwitcher {
     private func installMonitors() {
         let mask: NSEvent.EventTypeMask = [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
-            self?.externalInput(marker: event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0)
+            self?.observe(event)
         }) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
-            self?.externalInput(marker: event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0)
+            self?.observe(event)
             return event
         }) { monitors.append(local) }
+    }
+
+    private func observe(_ event: NSEvent) {
+        let commandPressed = event.type == .flagsChanged && [54, 55].contains(event.keyCode) && event.modifierFlags.contains(.command)
+        externalInput(marker: event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0, commandPressed: commandPressed)
     }
 
     private func modifier(_ code: CGKeyCode, down: Bool, flags: CGEventFlags, source: CGEventSource) -> CGEvent? {
