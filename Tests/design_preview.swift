@@ -97,6 +97,15 @@ enum DesignPreview {
             let triggers = controls.compactMap { $0 as? NSSegmentedControl }.first { $0.action == NSSelectorFromString("triggerChanged") }!
             let actions = controls.compactMap { $0 as? NSPopUpButton }.first { $0.action == NSSelectorFromString("actionChanged") }!
             func choose(_ title: String) { actions.selectItem(withTitle: title); change(actions) }
+            let home = controls.compactMap { $0 as? NSButton }.first { $0.tag == 10 && $0.action == NSSelectorFromString("selectKey:") }!
+            change(home)
+            choose(L("Command + Tab 切换应用"))
+            try capture(shell, name: profile.rawValue + "-app-switcher", directory: directory)
+            resize(900, height: 640)
+            try capture(shell, name: profile.rawValue + "-app-switcher-narrow", directory: directory)
+            resize(1080)
+            let initial = controls.compactMap { $0 as? NSButton }.first { $0.tag == Int(profile == .chromecast ? 8 : 7) && $0.action == NSSelectorFromString("selectKey:") }!
+            change(initial)
             triggers.selectedSegment = 1; change(triggers)
             choose(L("输入常用文本"))
             let text = controls.compactMap { $0 as? NSTextView }.first!
@@ -142,6 +151,6 @@ enum DesignPreview {
             window.orderOut(nil)
             precondition(mapping.bindings.isEmpty && !mapping.listening)
         }
-        print("Rendered 23 isolated interface states in \(directory.path)")
+        print("Rendered 27 isolated interface states in \(directory.path)")
     }
 }

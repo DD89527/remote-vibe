@@ -63,6 +63,14 @@ struct ButtonAction: Codable, Equatable {
     var appPath: String?
     var url: String?
     var isFn: Bool { kind == .key && usage == MappingKey.fnUsage }
+    // Preserve the existing v1 shortcut representation, including user mappings.
+    // Only these exact chords become an interactive system app-switching session.
+    var appSwitcherReverse: Bool? {
+        guard kind == .key, usage == 0x2B else { return nil }
+        if modifiers == CGEventFlags.maskCommand.rawValue { return false }
+        if modifiers == CGEventFlags([.maskCommand, .maskShift]).rawValue { return true }
+        return nil
+    }
     var isMouseMovement: Bool { [.mouseUp, .mouseDown, .mouseLeft, .mouseRight].contains(kind) }
     var isMouseAction: Bool { isMouseMovement || [.mouseLeftClick, .mouseRightClick].contains(kind) }
     var requiresHold: Bool { isFn || kind == .remoteVoice || isMouseMovement }
@@ -264,6 +272,25 @@ final class KeyMapping {
     private let client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
     private let desktop = DesktopActions()
     private let pointer = MousePointer()
+    private var appSwitcherRouting = AppSwitcherRouting()
+    private lazy var appSwitcher: AppSwitcher = {
+        let switcher = AppSwitcher()
+        switcher.onEnd = { [weak self] in
+            // Ending can occur inside refresh/cancellation. Never re-enter HID
+            // mapping updates there; restore after the current callback returns.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.restoreAppSwitcherMappingsIfReleased()
+                self.refresh()
+                self.onAppSwitcherChange?()
+            }
+        }
+        return switcher
+    }()
+    var appSwitcherActive: Bool { appSwitcher.active }
+    var appSwitcherPending: Bool { appSwitcherRouting.pending != nil }
+    var appSwitcherCounts: (opens: Int, closes: Int) { (appSwitcher.opens, appSwitcher.closes) }
+    var onAppSwitcherChange: (() -> Void)?
     private var mouseMode = MouseModeState()
     var mouseModeActive: Bool { mouseMode.active }
     var onMouseModeChange: (() -> Void)?
@@ -271,6 +298,7 @@ final class KeyMapping {
     private var actionFeedback: (text: String, until: Date)?
     private var actionGeneration = 0
     private var manager: IOHIDManager?
+    private var stopped = false
     private var held = Set<UInt8>()
     private let mappedFn = FnKey()
     private var fnButtons = Set<UInt8>()
@@ -349,6 +377,7 @@ final class KeyMapping {
         stop()
         capturedButtons.removeAll(); pendingCapture = nil
         self.profile = profile
+        stopped = false
         let normal = store.load(profile), mouse = store.load(profile, mouse: true)
         bindings = normal.bindings; mouseBindings = mouse.bindings
         configurationNotice = Self.recoveryNotice(normal.recovered || mouse.recovered)
@@ -434,6 +463,9 @@ final class KeyMapping {
     }
 
     func refresh() {
+        guard !stopped else { return }
+        restoreAppSwitcherMappingsIfReleased()
+        if appSwitcher.active && (!canPerform() || !listeningAllowed || !AXIsProcessTrusted()) { cancelAppSwitching() }
         let services = (IOHIDEventSystemClientCopyServices(client) as? [IOHIDServiceClient] ?? []).filter {
             (IOHIDServiceClientCopyProperty($0, "VendorID" as CFString) as? NSNumber)?.intValue == profile.vendorID &&
             (IOHIDServiceClientCopyProperty($0, "ProductID" as CFString) as? NSNumber)?.intValue == profile.productID
@@ -442,7 +474,7 @@ final class KeyMapping {
         if disconnected { suspendActions() }
         connected = !services.isEmpty
         if mouseMode.active && (!listeningAllowed || !AXIsProcessTrusted()) { resetMouseMode() }
-        let needsListener = !capturedButtons.isEmpty || buttons.contains { activeBinding($0).usesListener }
+        let needsListener = appSwitcherRouting.capturing || !capturedButtons.isEmpty || buttons.contains { activeBinding($0).usesListener }
         if needsListener && listeningAllowed && AXIsProcessTrusted() {
             if manager == nil { startListener() }
         } else { stopListener() }
@@ -450,16 +482,17 @@ final class KeyMapping {
         let entries: HIDMappings = buttons.compactMap { button in
             let configuration = activeBinding(button)
             let value = configuration.singleClick
-            guard value.kind != .original || configuration.hasGestures || capturedButtons.contains(button.code) else { return nil }
+            let captured = capturedButtons.contains(button.code) || appSwitcherRouting.capturing
+            guard value.kind != .original || configuration.hasGestures || captured else { return nil }
             // Unassigned usage suppresses a custom key even while permission is missing.
-            let target = !capturedButtons.contains(button.code) && value.kind == .key && !configuration.usesListener ? value.usage : 0
+            let target = !captured && value.kind == .key && !configuration.usesListener ? value.usage : 0
             return [src: button.source, dst: (UInt64(7) << 32) | target]
         }
         var present = Set<UInt64>()
         var applied = true
         needsApply = false
         let previousShortcuts = activeShortcuts
-        activeShortcuts = listenerOK ? Set(buttons.filter { activeBinding($0).usesListener }.map { $0.code }).union(capturedButtons) : []
+        activeShortcuts = listenerOK ? Set(buttons.filter { appSwitcherRouting.capturing || activeBinding($0).usesListener }.map { $0.code }).union(capturedButtons) : []
         for service in services {
             guard let id = (IOHIDServiceClientGetRegistryID(service) as? NSNumber)?.uint64Value else { continue }
             present.insert(id)
@@ -498,6 +531,7 @@ final class KeyMapping {
         status = !connected ? L("设置已保存 · 等待遥控器连接") : !applied ? L("按键设置未能生效，请检查权限") :
             needsApply ? L("按键设置被其他程序更改 · 保存可重新应用") :
             needsListener && !listenerOK ? L("自定义动作需要输入监控及辅助功能权限") :
+            appSwitcher.active ? L("应用切换 · ← → 选择，OK 确认，返回取消") :
             mouseMode.active ? L("鼠标模式已开启 · 再按切换键退出") : L("按键已生效 · 重连后自动恢复")
         if connected && applied && !needsApply && (!needsListener || listenerOK),
            let feedback = actionFeedback, feedback.until > Date() { status = feedback.text }
@@ -557,6 +591,25 @@ final class KeyMapping {
         for code in released { repeats.removeValue(forKey: code)?.invalidate(); pointer.release(code) }
         let added = pressed.subtracting(held)
         held = pressed
+        // All native remote actions are temporarily suppressed during switching.
+        // Handle navigation before mouse, gestures or configured shortcut actions.
+        if appSwitcherRouting.capturing {
+            if appSwitcher.active {
+                guard canPerform(), listenerOK, ownsAppSwitcherMappings() else {
+                    cancelAppSwitching()
+                    return
+                }
+                if added.count > 1 { appSwitcher.cancel() }
+                else if let code = added.first, let button = buttons.first(where: { $0.code == code }) {
+                    let binding = activeBinding(button)
+                    let reverse = [binding.singleClick, binding.doubleClick, binding.longPress].compactMap { $0?.appSwitcherReverse }.first
+                    appSwitcher.perform(appSwitcherRouting.command(for: code, launcherReverse: reverse))
+                }
+            }
+            if restoreAppSwitcherMappingsIfReleased() { refresh() }
+            return
+        }
+        if appSwitcherRouting.pending != nil { applyPendingAppSwitcher(); return }
         fnButtons.subtract(released)
         if fnButtons.isEmpty { releaseMappedFn() }
         if let voiceButton, released.contains(voiceButton) { releaseMappedVoice(normal: true) }
@@ -589,6 +642,7 @@ final class KeyMapping {
             return
         }
         for code in added.sorted() {
+            if appSwitcherRouting.pending != nil || appSwitcherRouting.capturing { break }
             if mouseMode.pending != nil { break }
             if capturedButtons.contains(code) {
                 if captureReady { onCapturedPress?(code) }
@@ -604,6 +658,7 @@ final class KeyMapping {
             }
             let value = configuration.singleClick
             perform(value, button: code)
+            if appSwitcherRouting.pending != nil || appSwitcherRouting.capturing { break }
             // Only scrolling repeats here; Esc, shortcuts and desktop actions fire once.
             if value.isScroll {
                 let timer = Timer(timeInterval: 0.09, repeats: true) { [weak self] _ in
@@ -661,7 +716,13 @@ final class KeyMapping {
 
     private func perform(_ value: ButtonAction, button: UInt8, targetPID: pid_t? = nil) {
         guard AXIsProcessTrusted() else { return }
-        if value.kind == .toggleMouseMode {
+        if let reverse = value.appSwitcherReverse, targetPID == nil {
+            cancelRepeats(); cancelPendingActions()
+            releaseMappedFn(); releaseMappedVoice(normal: false)
+            actionFeedback = nil
+            appSwitcherRouting.request(button: button, reverse: reverse)
+            applyPendingAppSwitcher()
+        } else if value.kind == .toggleMouseMode {
             guard capturedButtons.isEmpty else { return }
             cancelRepeats(); cancelPendingActions()
             mouseMode.requestToggle()
@@ -781,6 +842,7 @@ final class KeyMapping {
 
     // Once paste events are posted, let the short clipboard restore timer finish.
     func cancelPendingActions() {
+        cancelAppSwitching()
         actionGeneration += 1
         pointer.stop()
         mouseMode.cancelPending()
@@ -788,6 +850,42 @@ final class KeyMapping {
         gestureTimers.values.forEach { $0.invalidate() }
         gestureTimers.removeAll()
         gestures.reset()
+    }
+
+    func cancelAppSwitching() {
+        appSwitcherRouting.cancelRequest()
+        appSwitcher.cancel()
+        restoreAppSwitcherMappingsIfReleased()
+    }
+
+    @discardableResult private func restoreAppSwitcherMappingsIfReleased() -> Bool {
+        guard appSwitcherRouting.restoreIfReleased(held, active: appSwitcher.active) else { return false }
+        revision += 1
+        return true
+    }
+
+    private func ownsAppSwitcherMappings() -> Bool {
+        guard connected, !snapshots.isEmpty else { return false }
+        return snapshots.values.allSatisfy { snapshot in
+            let current = IOHIDServiceClientCopyProperty(snapshot.service, property) as? HIDMappings ?? []
+            return buttons.allSatisfy { current.contains([src: $0.source, dst: UInt64(7) << 32]) }
+        }
+    }
+
+    private func applyPendingAppSwitcher() {
+        guard let request = appSwitcherRouting.beginIfReleased(held) else { return }
+        revision += 1
+        refresh()
+        guard canPerform(), listenerOK, capturedButtons.isEmpty, ownsAppSwitcherMappings(),
+              appSwitcher.open(reverse: request.reverse) else {
+            cancelAppSwitching()
+            refresh()
+            feedback(L("应用切换未启动，请松开键盘修饰键并检查权限"))
+            return
+        }
+        appSwitcherRouting.didOpen()
+        status = L("应用切换 · ← → 选择，OK 确认，返回取消")
+        onAppSwitcherChange?()
     }
 
     func suspendActions() {
@@ -811,11 +909,13 @@ final class KeyMapping {
     private func cancelRepeats() { repeats.values.forEach { $0.invalidate() }; repeats.removeAll() }
 
     private func stopListener() {
+        cancelAppSwitching()
         resetMouseMode()
         releaseMappedVoice(normal: false)
         releaseMappedFn()
         if manager != nil { cancelPendingActions() }
         cancelRepeats(); held.removeAll()
+        if appSwitcherRouting.capturing { appSwitcherRouting.reset(); revision += 1 }
         if let manager {
             IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
             IOHIDManagerClose(manager, 0)
@@ -826,6 +926,7 @@ final class KeyMapping {
     }
 
     func stop() {
+        stopped = true
         cancelPendingActions()
         textInput.stop()
         stopListener()

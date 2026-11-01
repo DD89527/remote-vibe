@@ -205,6 +205,14 @@ enum ButtonGestureUITest {
         selectMode(false)
         selectButton(10)
         change(reset)
+        choose(L("Command + Tab 切换应用"))
+        precondition(save.isEnabled && action.titleOfSelectedItem == L("Command + Tab 切换应用"))
+        let preview = all.compactMap { $0 as? ActionPreview }.first!
+        precondition(preview.binding?.appSwitcherReverse == false && !preview.isHidden)
+        precondition(all.compactMap { $0 as? NSTextField }.contains { $0.stringValue == L("← → 选择应用，OK 确认，返回取消。") })
+        choose(L("Command + Shift + Tab 反向切换应用"))
+        precondition(preview.binding?.appSwitcherReverse == true)
+        change(reset)
         selectMode(true)
         precondition(action.isEnabled && !action.titleOfSelectedItem!.contains(L("切换鼠标模式")))
         for width: CGFloat in [852, 1024, 1224] {

@@ -454,6 +454,8 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
             hint.stringValue = L("切到下一块屏幕的可见窗口，鼠标随之移入。\n不移动窗口，不切换桌面空间；按一次切换一次。")
         } else if selectedBinding.kind == .nextWindow {
             hint.stringValue = L("在当前屏幕的可见普通窗口间循环。\n跳过最小化窗口；按一次切换一次。")
+        } else if selectedBinding.appSwitcherReverse != nil {
+            hint.stringValue = L("← → 选择应用，OK 确认，返回取消。")
         } else if custom {
             hint.stringValue = L("可多选修饰键，例如 Control + Shift + ↑。\n按一次发送一次；实际用途由当前软件决定。")
         } else if selectedBinding.kind == .key {

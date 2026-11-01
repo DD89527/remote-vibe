@@ -529,3 +529,8 @@
 "VoiceKey 使用 Chromecast Mic 或系统默认输入，并设置独立的长按快捷键（如右 ⌘）。离开音频电平预览页。Remote Vibe 会自动保持和释放快捷键，无需手按键盘。" = "In VoiceKey, select Chromecast Mic or the system default and a separate hold shortcut, such as Right Command. Leave the audio level preview page. Remote Vibe holds and releases the shortcut for you; you do not need to hold a keyboard key.";
 "启用微信的长按 Fn 全局语音输入，麦克风选择 Chromecast Mic 或系统默认。Fn 由 Remote Vibe 自动保持和释放，无需手按键盘。" = "Enable WeChat global hold-Fn dictation and select Chromecast Mic or the system default. Remote Vibe holds and releases Fn for you; you do not need to hold a keyboard key.";
 "语音键按一下开始，再按一下结束；松手不会结束。结束后等待文字出现。" = "Press the voice button once to start, and again to finish. Releasing the button does not stop recording. Wait for the text after finishing.";
+"应用切换 · ← → 选择，OK 确认，返回取消" = "App switcher · ← → select, OK confirm, Back cancel";
+"应用切换未启动，请松开键盘修饰键并检查权限" = "Could not open the app switcher; release keyboard modifiers and check permissions";
+"← → 选择应用，OK 确认，返回取消。" = "← → select an app, OK confirm, Back cancel.";
+"切换应用" = "Switch apps";
+"← → 选择 · OK 确认 · 返回取消" = "← → select · OK confirm · Back cancel";

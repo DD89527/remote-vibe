@@ -75,6 +75,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             self.writeStatus()
         }
         mapping.onFnChange = { [weak self] in self?.refreshReadiness(); self?.writeStatus() }
+        mapping.onAppSwitcherChange = { [weak self] in self?.mappingView.refreshStatus(); self?.writeStatus() }
         mapping.canPerform = { [weak self] in
             guard let self else { return false }
             return !self.active && !self.remote.voiceBusy && !self.unlock.blocksActions
@@ -139,6 +140,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     }
 
     private func begin() {
+        mapping.cancelAppSwitching()
         guard !unlock.blocksActions else { remote.cancelVoice(); message.stringValue = L("锁屏或连招录入期间暂停语音"); return }
         if active { remote.cancelVoice(); abort(); message.stringValue = L("请等上一段结束后再说话"); return }
         guard AXIsProcessTrusted() else { remote.cancelVoice(); message.stringValue = L("请先允许模拟 Fn 按键"); return }
@@ -608,6 +610,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             "mappedVoiceHeld": mapping.mappedVoiceHeld, "mappedVoiceActive": remote.mappedVoiceActive, "voiceBusy": remote.voiceBusy,
             "xiaomiVoiceKeyReady": xiaomiVoiceKey.ready, "xiaomiVoiceKeyStatus": xiaomiVoiceKey.status,
             "mouseModeActive": mapping.mouseModeActive,
+            "appSwitcherActive": mapping.appSwitcherActive, "appSwitcherPending": mapping.appSwitcherPending,
+            "appSwitcherOpens": mapping.appSwitcherCounts.opens, "appSwitcherCloses": mapping.appSwitcherCounts.closes,
             "keyMappingStatus": mapping.status, "keyMappingConnected": mapping.connected,
             "configurationNotice": mapping.configurationNotice ?? "",
             "inputMonitoring": mapping.listeningAllowed,
@@ -632,6 +636,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         mapping.onDeviceChange = nil
         mapping.onFnChange = nil
         mapping.onMouseModeChange = nil
+        mapping.onAppSwitcherChange = nil
         poll?.invalidate(); unlock.stop(); mapping.stop(); remote.shutdown(); xiaomiVoiceKey.stop(); abort(); mic.stop()
     }
 }

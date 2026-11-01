@@ -164,7 +164,7 @@ final class ActionPreview: SettingsPanel {
         func text(_ value: String, at point: NSPoint, size: CGFloat, color: NSColor, weight: NSFont.Weight = .medium) {
             (value as NSString).draw(at: point, withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color])
         }
-        if let binding, binding.kind == .key, !voice {
+        if let binding, binding.kind == .key, binding.appSwitcherReverse == nil, !voice {
             let flags = CGEventFlags(rawValue: binding.modifiers)
             var keys = [(CGEventFlags.maskControl, "⌃"), (.maskAlternate, "⌥"), (.maskShift, "⇧"), (.maskCommand, "⌘"), (.maskSecondaryFn, "Fn")]
                 .filter { flags.contains($0.0) }.map { $0.1 }
@@ -188,6 +188,9 @@ final class ActionPreview: SettingsPanel {
             let detail: String
             if voice { symbol = "waveform"; title = voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松开结束。"); detail = L("使用遥控器自带麦克风") }
             else if binding == nil { symbol = "plus"; title = L("为这个手势，留一个位置。"); detail = L("从上方菜单选择一个动作") }
+            else if binding!.appSwitcherReverse != nil {
+                symbol = "square.stack.3d.up"; title = L("切换应用"); detail = L("← → 选择 · OK 确认 · 返回取消")
+            }
             else {
                 switch binding!.kind {
                 case .toggleMouseMode: symbol = "cursorarrow"; title = binding!.title; detail = L("按一次进入，再按一次退出")
