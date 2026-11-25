@@ -6,6 +6,11 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      apple_runner:
+        description: Standard Apple Silicon runner image (macOS 15 deployment target is unchanged)
+        type: choice
+        options: [macos-15, macos-26]
+        default: macos-15
       draft_release:
         description: Create a draft release for the version in Info.plist
         type: boolean
@@ -21,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          - runner: ${{ inputs.apple_runner || 'macos-15' }}
             arch: arm64
             chip: AppleSilicon
           - runner: macos-15-intel
