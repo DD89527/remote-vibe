@@ -36,7 +36,10 @@ enum DesignPreview {
         let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let image = NSImage(size: view.bounds.size)
-        image.lockFocus(); SettingsTheme.canvas.setFill(); view.bounds.fill()
+        let isDark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        image.lockFocus()
+        SettingsTheme.color(isDark ? 0x131815 : 0xF2F3EE).setFill()
+        view.bounds.fill()
         NSImage(cgImage: bitmap.cgImage!, size: view.bounds.size).draw(in: view.bounds)
         image.unlockFocus()
         let rendered = NSBitmapImageRep(data: image.tiffRepresentation!)!
@@ -47,6 +50,7 @@ enum DesignPreview {
         let empty = try JSONEncoder().encode(KeyMapping.Bindings())
         var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         for profile in RemoteProfile.allCases { arguments[profile.mappingKey] = empty; arguments[profile.mouseMappingKey] = empty }
+        arguments["voiceInputTarget.v1"] = "voicekey"
         UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         let directory = URL(fileURLWithPath: "build/design/" + (CommandLine.arguments.dropFirst().first ?? "review"), isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -56,27 +60,28 @@ enum DesignPreview {
             view.voiceToggle = profile == .chromecast
             let combo = ComboUnlockView(controller: ComboUnlock(), allowPermissions: {})
             combo.isHidden = true
-            let remote = NSPopUpButton()
+            let remote = StyledPopUpButton(frame: .zero, pullsDown: false)
             remote.addItems(withTitles: RemoteProfile.allCases.map(\.title))
             remote.selectItem(at: profile == .chromecast ? 0 : 1)
-            let tabs = NSSegmentedControl(labels: [L("按键映射"), L("连招解锁")], trackingMode: .selectOne, target: nil, action: nil)
+            let tabs = StyledSegmentedControl(labels: [L("按键映射"), L("连招解锁")], trackingMode: .selectOne, target: nil, action: nil)
             tabs.selectedSegment = 0; tabs.isHidden = profile == .xiaomiRC003
-            let voiceInput = NSPopUpButton()
-            voiceInput.addItems(withTitles: [L("语音：微信"), L("语音：VoiceKey")])
-            voiceInput.selectItem(at: 1)
-            let activation = NSPopUpButton()
-            activation.addItems(withTitles: [L("点按开关"), L("按住说话")])
+            let discoveryBtn = SettingsTheme.secondaryButton(L("已连接"))
+            discoveryBtn.isEnabled = false
+            let permsBtn = SettingsTheme.secondaryButton(L("权限设置"))
+            let activation = StyledPopUpButton(frame: .zero, pullsDown: false)
+            activation.addItems(withTitles: VoiceActivation.allCases.map(\.title))
             activation.selectItem(at: profile == .chromecast ? 0 : 1)
             activation.isEnabled = profile == .chromecast
             let shell = SettingsView(mapping: view, unlock: combo, remote: remote,
-                discovery: SettingsTheme.button(L("扫描遥控器")), pages: tabs,
-                connection: NSTextField(wrappingLabelWithString: L("等待遥控器连接")),
+                discovery: discoveryBtn, pages: tabs,
+                connection: NSTextField(wrappingLabelWithString: L("%@：遥控器已连接", profile.title)),
                 audio: NSTextField(wrappingLabelWithString: L("语音组件：已就绪")),
-                permission: NSTextField(wrappingLabelWithString: L("辅助功能：%@\n输入监控：%@", L("已允许"), L("已允许"))),
-                permissionsButton: SettingsTheme.button(L("权限设置")),
-                message: NSTextField(wrappingLabelWithString: profile == .chromecast ? L("录音已结束 · 按一下语音键开始") : L("准备就绪后，在当前输入框里按住语音键说话。")),
-                readiness: NSTextField(labelWithString: L("语音待就绪 · ") + L("连接遥控器")),
-                wechatButton: SettingsTheme.button(L("语音设置")), voiceInput: voiceInput, voiceActivation: activation)
+                permission: NSTextField(wrappingLabelWithString: L("系统权限：已全部开启")),
+                permissionsButton: permsBtn,
+                message: NSTextField(wrappingLabelWithString: L("关闭此窗口后，Remote Vibe 仍会在菜单栏后台运行。")),
+                readiness: NSTextField(labelWithString: L("已就绪 · 点击任意输入框，按住遥控器语音键即可说话")),
+                wechatButton: SettingsTheme.secondaryButton(L("微信语音指南")), voiceActivation: activation)
+            shell.appearance = NSAppearance(named: .aqua)
             let window = NSWindow(contentRect: shell.bounds, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             let scroll = SettingsScrollView(frame: shell.bounds)
             scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.scrollerStyle = .overlay
@@ -90,22 +95,25 @@ enum DesignPreview {
             }
             resize(1080)
             try capture(shell, name: profile.rawValue + "-default", directory: directory)
+            shell.appearance = NSAppearance(named: .darkAqua)
+            try capture(shell, name: profile.rawValue + "-default-dark", directory: directory)
+            shell.appearance = NSAppearance(named: .aqua)
             resize(1280)
             try capture(shell, name: profile.rawValue + "-wide", directory: directory)
             resize(1080)
             let controls = descendants(view)
+            let searchField = controls.compactMap { $0 as? PlainSearchField }.first!
+            precondition(window.makeFirstResponder(searchField), "Search field must accept keyboard focus")
+            try capture(shell, name: profile.rawValue + "-search-focused", directory: directory)
+            searchField.stringValue = "Shift"
+            change(searchField)
+            try capture(shell, name: profile.rawValue + "-search-typed", directory: directory)
+            searchField.stringValue = ""
+            change(searchField)
+            window.makeFirstResponder(nil)
             let triggers = controls.compactMap { $0 as? NSSegmentedControl }.first { $0.action == NSSelectorFromString("triggerChanged") }!
             let actions = controls.compactMap { $0 as? NSPopUpButton }.first { $0.action == NSSelectorFromString("actionChanged") }!
             func choose(_ title: String) { actions.selectItem(withTitle: title); change(actions) }
-            let home = controls.compactMap { $0 as? NSButton }.first { $0.tag == 10 && $0.action == NSSelectorFromString("selectKey:") }!
-            change(home)
-            choose(L("Command + Tab 切换应用"))
-            try capture(shell, name: profile.rawValue + "-app-switcher", directory: directory)
-            resize(900, height: 640)
-            try capture(shell, name: profile.rawValue + "-app-switcher-narrow", directory: directory)
-            resize(1080)
-            let initial = controls.compactMap { $0 as? NSButton }.first { $0.tag == Int(profile == .chromecast ? 8 : 7) && $0.action == NSSelectorFromString("selectKey:") }!
-            change(initial)
             triggers.selectedSegment = 1; change(triggers)
             choose(L("输入常用文本"))
             let text = controls.compactMap { $0 as? NSTextView }.first!
@@ -137,6 +145,9 @@ enum DesignPreview {
             precondition(window.makeFirstResponder(voice), "Remote buttons must accept keyboard focus")
             try capture(shell, name: profile.rawValue + "-voice-narrow", directory: directory)
             resize(1080)
+            shell.appearance = NSAppearance(named: .darkAqua)
+            try capture(shell, name: profile.rawValue + "-voice-dark", directory: directory)
+            shell.appearance = NSAppearance(named: .aqua)
             if profile == .chromecast {
                 view.isHidden = true; combo.isHidden = false; tabs.selectedSegment = 1
                 try capture(shell, name: "combo", directory: directory)
@@ -151,6 +162,6 @@ enum DesignPreview {
             window.orderOut(nil)
             precondition(mapping.bindings.isEmpty && !mapping.listening)
         }
-        print("Rendered 27 isolated interface states in \(directory.path)")
+        print("Rendered 23 isolated interface states in \(directory.path)")
     }
 }

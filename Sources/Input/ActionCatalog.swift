@@ -4,11 +4,12 @@ struct ActionPreset {
     let group: String
     let title: String
     let binding: ButtonAction?
+    var isAlias = false
 }
 
 enum ActionCatalog {
-    private static func key(_ group: String, _ title: String, _ usage: UInt64, _ flags: CGEventFlags = []) -> ActionPreset {
-        .init(group: group, title: title, binding: .init(kind: .key, usage: usage, modifiers: flags.rawValue))
+    private static func key(_ group: String, _ title: String, _ usage: UInt64, _ flags: CGEventFlags = [], alias: Bool = false) -> ActionPreset {
+        .init(group: group, title: title, binding: .init(kind: .key, usage: usage, modifiers: flags.rawValue), isAlias: alias)
     }
     private static func action(_ group: String, _ title: String, _ kind: ButtonAction.Kind) -> ActionPreset {
         .init(group: group, title: title, binding: .init(kind: kind))
@@ -30,7 +31,7 @@ enum ActionCatalog {
         key(L("终端 / Codex CLI"), L("编辑提示词 · ⌃G"), 0x0A, .maskControl),
         key(L("终端 / Codex CLI"), L("复制 Codex 上次输出 · ⌃O"), 0x12, .maskControl),
         key(L("终端 / Codex CLI"), L("搜索输入历史 · ⌃R"), 0x15, .maskControl),
-        key(L("终端 / Codex CLI"), "Shift + ←", 0x50, .maskShift),
+        key(L("终端 / Codex CLI"), "Shift + ←", 0x50, .maskShift, alias: true),
         key(L("终端 / Codex CLI"), L("数字 1"), 0x1E),
         key(L("终端 / Codex CLI"), L("数字 2"), 0x1F),
         key(L("终端 / Codex CLI"), L("数字 3"), 0x20),
@@ -122,15 +123,78 @@ enum ActionCatalog {
         .init(group: L("音量、亮度与媒体"), title: $0.title, binding: .init(kind: .systemKey, usage: $0.rawValue))
     } + [.init(group: L("自定义"), title: L("自定义按键 / 组合快捷键…"), binding: nil)]
 
-    static func index(for binding: ButtonAction) -> Int {
-        presets.firstIndex {
-            $0.binding == binding || ([.text, .openApp, .openURL].contains(binding.kind) && $0.binding?.kind == binding.kind)
-        } ?? presets.count - 1
+    private static func matches(_ preset: ActionPreset, _ binding: ButtonAction) -> Bool {
+        preset.binding == binding || ([.text, .openApp, .openURL].contains(binding.kind) && preset.binding?.kind == binding.kind)
+    }
+
+    static func index(for binding: ButtonAction, preferredIndex: Int? = nil) -> Int {
+        if let preferredIndex, presets.indices.contains(preferredIndex), matches(presets[preferredIndex], binding) {
+            return preferredIndex
+        }
+        return presets.firstIndex { !$0.isAlias && matches($0, binding) } ??
+            presets.firstIndex { matches($0, binding) } ??
+            (presets.count - 1)
     }
 
     static func displayName(_ binding: ButtonAction) -> String {
         if [.openApp, .openURL].contains(binding.kind) { return binding.title }
-        return presets[index(for: binding)].binding == nil ? binding.title : presets[index(for: binding)].title
+        let matched = index(for: binding)
+        return presets[matched].binding == nil ? binding.title : presets[matched].title
+    }
+
+    static func searchScore(for preset: ActionPreset, displayedTitle: String? = nil, query rawQuery: String) -> Int? {
+        let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return 0 }
+        let title = (displayedTitle ?? preset.title).lowercased()
+        let group = preset.group.lowercased()
+
+        var keywords = "\(title) \(group)"
+        let flags = CGEventFlags(rawValue: preset.binding?.modifiers ?? 0)
+        if title.contains("⌘") || flags.contains(.maskCommand) {
+            keywords += " cmd command 苹果键 花键"
+        }
+        if title.contains("⇧") || flags.contains(.maskShift) {
+            keywords += " shift"
+        }
+        if title.contains("⌥") || flags.contains(.maskAlternate) {
+            keywords += " opt option alt"
+        }
+        if title.contains("⌃") || flags.contains(.maskControl) {
+            keywords += " ctrl control"
+        }
+        if title.contains("⌫") || preset.binding?.usage == 0x2A || preset.binding?.usage == 0x4C {
+            keywords += " backspace delete del 退格 删除"
+        }
+        if title.contains("⏎") || preset.binding?.usage == 0x28 {
+            keywords += " enter return 回车 确认"
+        }
+        if preset.binding?.usage == 0x29 {
+            keywords += " esc escape 取消 退出"
+        }
+        if preset.binding?.usage == 0x2C {
+            keywords += " space 空格"
+        }
+        if let keyName = preset.binding?.key?.name.lowercased() {
+            keywords += " \(keyName)"
+        }
+
+        let normalizedQuery = trimmed.replacingOccurrences(of: " + ", with: " ")
+        let rawTokens = normalizedQuery.split(whereSeparator: \.isWhitespace).map(String.init)
+        var tokens: [String] = []
+        for token in rawTokens {
+            if token.count > 2, token.contains("+"), !token.hasSuffix("+") {
+                tokens.append(contentsOf: token.split(separator: "+").map(String.init))
+            } else {
+                tokens.append(token)
+            }
+        }
+        guard !tokens.isEmpty, tokens.allSatisfy({ keywords.contains($0) }) else {
+            return nil
+        }
+        if title.hasPrefix(trimmed) { return 300 }
+        if title.contains(trimmed) { return 200 }
+        if group.contains(trimmed) { return 120 }
+        return 100
     }
 }
 

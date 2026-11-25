@@ -155,6 +155,19 @@ enum ButtonGestureUITest {
         precondition(!chooser.isHidden && chooser.isEnabled)
         change(reset)
         selectTrigger(0)
+        // Canonical vs alias Shift + Left selection must preserve the chosen section item.
+        choose(L("向左选择 · ⇧←"))
+        precondition(action.titleOfSelectedItem == L("向左选择 · ⇧←"))
+        selectTrigger(1)
+        selectTrigger(0)
+        precondition(action.titleOfSelectedItem == L("向左选择 · ⇧←"))
+        choose("Shift + ←")
+        precondition(action.titleOfSelectedItem == "Shift + ←")
+        selectTrigger(1)
+        selectTrigger(0)
+        precondition(action.titleOfSelectedItem == "Shift + ←")
+        change(reset)
+        selectTrigger(0)
         let voiceIndex = ActionCatalog.presets.firstIndex { $0.binding?.kind == .remoteVoice }!
         let voiceItem = action.itemArray.first { $0.tag == voiceIndex && !$0.isSectionHeader }!
         precondition(voiceItem.isHidden == (profile == .xiaomiRC003))
@@ -205,14 +218,6 @@ enum ButtonGestureUITest {
         selectMode(false)
         selectButton(10)
         change(reset)
-        choose(L("Command + Tab 切换应用"))
-        precondition(save.isEnabled && action.titleOfSelectedItem == L("Command + Tab 切换应用"))
-        let actionPreview = all.compactMap { $0 as? ActionPreview }.first!
-        precondition(actionPreview.binding?.appSwitcherReverse == false && !actionPreview.isHidden)
-        precondition(all.compactMap { $0 as? NSTextField }.contains { $0.stringValue == L("← → 选择应用，OK 确认，返回取消。") })
-        choose(L("Command + Shift + Tab 反向切换应用"))
-        precondition(actionPreview.binding?.appSwitcherReverse == true)
-        change(reset)
         selectMode(true)
         precondition(action.isEnabled && !action.titleOfSelectedItem!.contains(L("切换鼠标模式")))
         for width: CGFloat in [852, 1024, 1224] {
@@ -228,9 +233,75 @@ enum ButtonGestureUITest {
         precondition(!trigger.isEnabled && !action.isEnabled && !reset.isEnabled)
         if profile == .chromecast {
             view.voiceToggle = true
-            precondition(trigger.selectedSegment == 0, "Click-to-toggle must not display Hold as its selected gesture")
+            precondition(trigger.selectedSegment == 0, "Toggle recording must not display the Hold gesture")
             view.voiceToggle = false
         }
+        precondition(view.isVoiceSelected)
+        let voiceStudio = all.compactMap { $0 as? VoiceStudioView }.first!
+        precondition(!voiceStudio.isHidden)
+        let voicePreset = all.compactMap { $0 as? NSPopUpButton }.first { $0.action == NSSelectorFromString("presetChanged") }!
+        precondition(voicePreset.itemTitles.contains(L("VoiceKey（自动读取长按快捷键）")))
+        view.updateVoiceLevel(0.65, active: true, testingOnly: true)
+        view.updateVoiceLevel(0, active: false, testingOnly: false)
+
+        // Remote physical press jump helper & gesture indicator dots + discard drafts + action filter + shortcut recorder.
+        view.selectRemoteButton(code: profile == .chromecast ? 8 : 7, pulse: false)
+        precondition(!view.isVoiceSelected && voiceStudio.isHidden)
+        selectTrigger(2)
+        choose(L("自定义按键 / 组合快捷键…"))
+        let recorder = all.compactMap { $0 as? ShortcutRecorderControl }.first { !$0.isHiddenOrHasHiddenAncestor }!
+        precondition(recorder.applyRecordedShortcut(keyCode: 126, modifiers: [.command, .shift, .function]))
+        precondition(recorder.usage == 0x52)
+        let expectedFlags = CGEventFlags([.maskCommand, .maskShift]).rawValue
+        precondition(recorder.modifiers == expectedFlags, "Arrow implicit .function must not add SecondaryFn")
+        precondition((trigger as? StyledSegmentedControl)?.configuredSegments.contains(2) == true)
+        precondition(view.hasUnsavedChanges)
+
+        let search = all.compactMap { $0 as? PlainSearchField }.first!
+        view.layoutSubtreeIfNeeded()
+        let searchBar = search.superview!
+        precondition(search.frame.minX >= 27, "Search text area must never overlap the leading magnifying glass icon")
+        precondition(abs(search.frame.midY - searchBar.bounds.midY) <= 1.5, "Search text field vertically misaligned: \(search.frame) in \(searchBar.bounds)")
+        precondition(window.makeFirstResponder(search), "Action search field must accept focus")
+        if let editor = search.currentEditor(), let clip = editor.superview {
+            let clipRect = searchBar.convert(clip.frame, from: clip.superview)
+            precondition(clipRect.minX > 23, "Focused field editor clip view overlapped magnifying glass (10..23): \(clipRect)")
+            precondition(abs(clipRect.midY - searchBar.bounds.midY) <= 2, "Focused field editor clip view vertically misaligned: \(clipRect) in \(searchBar.bounds)")
+        }
+        window.makeFirstResponder(nil)
+        let searchPopup = all.compactMap { $0 as? ActionSearchResultsPopup }.first!
+        precondition(searchPopup.isHidden)
+        search.stringValue = "⌘C"
+        change(search)
+        let copyItem = action.itemArray.first { !$0.isSectionHeader && $0.title == L("复制 · ⌘C") }!
+        let muteItem = action.itemArray.first { !$0.isSectionHeader && $0.title == L("静音 / 取消静音") }!
+        precondition(!copyItem.isHidden && muteItem.isHidden)
+        precondition(!searchPopup.isHidden && searchPopup.displayedItems.contains { $0.title == L("复制 · ⌘C") })
+
+        // Verify symbol-alias search ("Shift" matches both literal "Shift" and "⇧" shortcuts) and direct selection.
+        search.stringValue = "Shift"
+        change(search)
+        precondition(!searchPopup.isHidden)
+        precondition(searchPopup.displayedItems.contains { $0.title == L("Shift + Tab 上一项") })
+        precondition(searchPopup.displayedItems.contains { $0.title == L("向左选择 · ⇧←") })
+        searchPopup.moveHighlight(by: 1)
+        let secondChoice = searchPopup.displayedItems[1]
+        precondition(searchPopup.highlightedPresetIndex == secondChoice.presetIndex)
+        view.selectSearchResult(presetIndex: secondChoice.presetIndex)
+        precondition(searchPopup.isHidden && search.stringValue.isEmpty)
+        precondition(action.titleOfSelectedItem == secondChoice.title)
+        precondition(!muteItem.isHidden)
+
+        view.discardDrafts()
+        precondition(!view.hasUnsavedChanges && !save.isEnabled)
+        precondition((trigger as? StyledSegmentedControl)?.configuredSegments.contains(2) == false)
+
+        // Verify dark appearance offscreen rendering does not crash or fail layout.
+        view.appearance = NSAppearance(named: .darkAqua)
+        view.layoutSubtreeIfNeeded()
+        let darkBitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        view.cacheDisplay(in: view.bounds, to: darkBitmap)
+
         precondition(mapping.bindings.isEmpty && !mapping.listening)
         window.orderOut(nil)
     }

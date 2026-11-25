@@ -1,10 +1,5 @@
 import Foundation
 
-enum VoiceActivation: String, CaseIterable {
-    case toggle, hold
-    var title: String { self == .toggle ? L("点按开关") : L("按住说话") }
-}
-
 // The only injected dependencies are scheduling and monotonic time, for offline tests.
 final class RemoteAudioSession {
     typealias Cancel = () -> Void

@@ -8,6 +8,9 @@ private final class RemoteKeyButton: NSButton {
             setAccessibilityValue(selected ? L("已选择") : L("未选择"))
         }
     }
+    var dirty = false { didSet { if oldValue != dirty { needsDisplay = true } } }
+    var pulse = false { didSet { if oldValue != pulse { needsDisplay = true } } }
+
     private var hovered = false
     private var tracking: NSTrackingArea?
     override var acceptsFirstResponder: Bool { true }
@@ -33,23 +36,52 @@ private final class RemoteKeyButton: NSButton {
         let shadow = NSShadow(); shadow.shadowColor = NSColor.black.withAlphaComponent(0.12)
         shadow.shadowOffset = NSSize(width: 0, height: -1); shadow.shadowBlurRadius = 2; shadow.set()
         let emphasized = selected || isHighlighted
-        let fill = emphasized ? SettingsTheme.forest : hovered ? SettingsTheme.line : SettingsTheme.color(0xFAFBF6)
+        let fill = emphasized ? SettingsTheme.color(0x344936) : hovered ? SettingsTheme.color(0xE6EBE0) : SettingsTheme.color(0xFAFBF6)
         fill.setFill(); shape.fill()
         NSGraphicsContext.restoreGraphicsState()
-        (selected ? SettingsTheme.forest : SettingsTheme.color(0xC9D0C3)).setStroke()
-        shape.lineWidth = selected ? 1.5 : 0.7; shape.stroke()
+
+        let strokeColor: NSColor = dirty ? SettingsTheme.color(0xD9822B) :
+            (selected ? SettingsTheme.color(0x344936) : SettingsTheme.color(0xC9D0C3))
+        strokeColor.setStroke()
+        shape.lineWidth = (selected || dirty) ? 1.5 : 0.75
+        shape.stroke()
+
         let symbols = ["↑":"chevron.up", "↓":"chevron.down", "←":"chevron.left", "→":"chevron.right",
                        "↩":"arrow.uturn.backward", L("语音"):"mic.fill", L("主页"):"house", L("静音"):"speaker.slash",
                        L("电源"):"power", L("信源"):"rectangle.on.rectangle", L("菜单"):"line.3.horizontal", "＋":"plus", "−":"minus"]
         if let symbol = symbols[title] {
-            SettingsTheme.symbol(symbol, in: NSRect(x: rect.midX - 9, y: rect.midY - 9, width: 18, height: 18), onDark: emphasized)
+            let iconRect = NSRect(x: rect.midX - 9, y: rect.midY - 9, width: 18, height: 18)
+            if emphasized {
+                SettingsTheme.symbol(symbol, in: iconRect, onDark: true)
+            } else if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) {
+                let factor = min(iconRect.width / img.size.width, iconRect.height / img.size.height)
+                let sz = NSSize(width: img.size.width * factor, height: img.size.height * factor)
+                let tinted = NSImage(size: img.size, flipped: false) { b in
+                    img.draw(in: b)
+                    SettingsTheme.color(0x202923).setFill()
+                    b.fill(using: .sourceAtop)
+                    return true
+                }
+                tinted.draw(in: NSRect(x: iconRect.midX - sz.width / 2, y: iconRect.midY - sz.height / 2, width: sz.width, height: sz.height),
+                            from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
         } else {
-            let attributes: [NSAttributedString.Key: Any] = [.font: font ?? NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: emphasized ? NSColor.white : SettingsTheme.ink]
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font ?? NSFont.systemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: emphasized ? NSColor.white : SettingsTheme.color(0x202923)
+            ]
             let size = (title as NSString).size(withAttributes: attributes)
             (title as NSString).draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
         }
-        if window?.firstResponder === self {
-            NSColor.keyboardFocusIndicatorColor.setStroke()
+
+        if pulse {
+            SettingsTheme.color(0x69D178).setStroke()
+            let pulseRing = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75), xRadius: radius + 2, yRadius: radius + 2)
+            pulseRing.lineWidth = 2.2
+            pulseRing.stroke()
+        } else if window?.firstResponder === self {
+            SettingsTheme.color(0x527A58).setStroke()
             let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius + 2, yRadius: radius + 2)
             ring.lineWidth = 2; ring.stroke()
         }
@@ -75,9 +107,14 @@ private final class RemoteDiagram: NSView {
 }
 
 final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegate {
-    var voiceToggle = false { didSet { displaySelection() } }
+    var voiceToggle = false {
+        didSet { voiceStudio.voiceToggle = voiceToggle; displaySelection() }
+    }
     override var isFlipped: Bool { true }
     private let mapping: KeyMapping
+    private let voiceSettings: VoiceInputSettings
+    var onVoiceSettingsChange: (() -> Void)?
+
     private var normalDrafts: KeyMapping.Bindings
     private var mouseDrafts: KeyMapping.Bindings
     private var editingMouse: Bool { modePicker.selectedSegment == 1 }
@@ -88,22 +125,33 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
     private var selected: UInt8 = 8
     private var displayedProfile: RemoteProfile
     private var draftCache: [RemoteProfile: (normal: KeyMapping.Bindings, mouse: KeyMapping.Bindings)] = [:]
-    private let modePicker = NSSegmentedControl()
+    private var preferredPresetIndices: [String: Int] = [:]
+    private var pulseResetWorkItem: DispatchWorkItem?
+
+    private let modePicker = StyledSegmentedControl()
     private let diagram = RemoteDiagram(frame: NSRect(x: 0, y: 0, width: 305, height: 540))
+    private let studioEyebrow = SettingsTheme.eyebrow(L("当前按键"))
     private let nameLabel = NSTextField(labelWithString: L("静音"))
     private let currentLabel = NSTextField(wrappingLabelWithString: "")
-    private let triggerPicker = NSSegmentedControl()
-    private let actionPicker = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let keyPicker = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let triggerEyebrow = SettingsTheme.eyebrow(L("触发手势"))
+    private let triggerPicker = StyledSegmentedControl()
+    private let actionLabel = SettingsTheme.eyebrow(L("执行动作"))
+    private let actionPicker = StyledPopUpButton(frame: .zero, pullsDown: false)
+    private let searchBar = ActionSearchBar(frame: .zero)
+    private var actionSearchField: PlainSearchField { searchBar.searchField }
+    private let searchResultsPopup = ActionSearchResultsPopup(frame: NSRect(x: 440, y: 223, width: 558, height: 220))
+    private let shortcutRecorder = ShortcutRecorderControl()
+    private let keyPicker = StyledPopUpButton(frame: .zero, pullsDown: false)
     private let textEditor = NSTextView()
     private let textScroll = NSScrollView()
     private let targetLabel = NSTextField(labelWithString: "")
     private let targetField = NSTextField(string: "")
-    private let chooseAppButton = SettingsTheme.button(L("选择应用…"))
-    private let modifierLabel = NSTextField(labelWithString: L("组合键（可多选）"))
+    private let chooseAppButton = SettingsTheme.secondaryButton(L("选择应用…"))
+    private let hintPanel = SettingsPanel()
     private let hint = NSTextField(wrappingLabelWithString: "")
     private let saveButton = SettingsTheme.button(L("保存并生效"))
-    private let resetButton = SettingsTheme.button(L("恢复此键默认"))
+    private let resetButton = SettingsTheme.secondaryButton(L("恢复此键默认"))
+    private let discardButton = SettingsTheme.secondaryButton(L("撤销修改"))
     private let permissionButton = SettingsTheme.button(L("允许按键控制"))
     private let liveStatus = NSTextField(wrappingLabelWithString: "")
     private var modifierButtons: [(NSButton, CGEventFlags)] = []
@@ -111,67 +159,110 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
     private let presets = ActionCatalog.presets
     private let deviceName = SettingsTheme.label("", size: 17, weight: .medium, color: .white)
     private let capacity = SettingsTheme.eyebrow("", light: true)
-    private let actionLabel = SettingsTheme.eyebrow(L("02 / 执行动作"))
     private let actionPreview = ActionPreview()
+    private let voiceStudio: VoiceStudioView
 
-    init(mapping: KeyMapping) {
+    var isVoiceSelected: Bool { selected == 0 }
+    var hasUnsavedChanges: Bool { normalDrafts != mapping.bindings || mouseDrafts != mapping.mouseBindings }
+    var isRecordingShortcut: Bool { shortcutRecorder.isRecording }
+
+    init(mapping: KeyMapping, voiceSettings: VoiceInputSettings? = nil) {
         self.mapping = mapping
+        let resolvedVoiceSettings = voiceSettings ?? VoiceInputSettings(
+            preferences: UserDefaults(suiteName: "local.ben.RemoteVibe.ephemeral.\(UUID().uuidString)") ?? .standard
+        )
+        self.voiceSettings = resolvedVoiceSettings
+        self.voiceStudio = VoiceStudioView(settings: resolvedVoiceSettings)
         normalDrafts = mapping.bindings
         mouseDrafts = mapping.mouseBindings
         displayedProfile = mapping.profile
         selected = mapping.profile == .chromecast ? 8 : 7
         super.init(frame: NSRect(x: 0, y: 0, width: 1024, height: 574))
-        appearance = NSAppearance(named: .aqua)
+
         let stage = RemoteStage(frame: NSRect(x: 0, y: 0, width: 396, height: 574))
         addSubview(stage)
         let inspector = SettingsPanel(frame: NSRect(x: 414, y: 0, width: 610, height: 574))
         addSubview(inspector)
-        let deviceEyebrow = SettingsTheme.eyebrow("01 / YOUR REMOTE", light: true)
-        deviceEyebrow.frame = NSRect(x: 24, y: 21, width: 220, height: 16); stage.addSubview(deviceEyebrow)
-        deviceName.frame = NSRect(x: 23, y: 44, width: 300, height: 26); stage.addSubview(deviceName)
-        diagram.frame = NSRect(x: 66, y: 113, width: 260, height: 424)
-        diagram.bounds = NSRect(x: 0, y: 0, width: 305, height: 540)
-        stage.addSubview(diagram)
+        let deviceEyebrow = SettingsTheme.eyebrow(L("遥控器键位"), light: true)
+        deviceEyebrow.frame = NSRect(x: 24, y: 22, width: 220, height: 16); stage.addSubview(deviceEyebrow)
+        deviceName.frame = NSRect(x: 24, y: 44, width: 300, height: 25); stage.addSubview(deviceName)
+        modePicker.surfaceStyle = .darkStage
         modePicker.segmentCount = 2
         modePicker.setLabel(L("普通键位"), forSegment: 0)
         modePicker.setLabel(L("鼠标键位"), forSegment: 1)
-        // This control sits on the dark stage, outside the light inspector theme.
-        modePicker.appearance = NSAppearance(named: .darkAqua)
-        modePicker.segmentStyle = .separated
-        modePicker.segmentDistribution = .fillEqually
-        modePicker.selectedSegmentBezelColor = SettingsTheme.forest
         modePicker.selectedSegment = 0
         modePicker.font = .systemFont(ofSize: 12, weight: .medium)
         modePicker.target = self; modePicker.action = #selector(modeChanged)
         modePicker.setAccessibilityLabel(L("要编辑的模式"))
         modePicker.toolTip = L("这里只选择要编辑的键位；用遥控器的切换键进入或退出鼠标模式。")
-        modePicker.frame = NSRect(x: 24, y: 77, width: 348, height: 30)
+        modePicker.frame = NSRect(x: 24, y: 78, width: 348, height: 34)
         stage.addSubview(modePicker)
-        capacity.frame = NSRect(x: 24, y: 545, width: 350, height: 16); stage.addSubview(capacity)
+
+        diagram.frame = NSRect(x: 74, y: 120, width: 248, height: 404)
+        diagram.bounds = NSRect(x: 0, y: 0, width: 305, height: 530)
+        stage.addSubview(diagram)
+        capacity.frame = NSRect(x: 24, y: 538, width: 348, height: 16); stage.addSubview(capacity)
         rebuildDiagram()
 
-        place(SettingsTheme.eyebrow("02 / BUTTON STUDIO"), y: 22, h: 16)
-        nameLabel.font = .systemFont(ofSize: 27, weight: .semibold)
+        place(studioEyebrow, y: 22, h: 15)
+        nameLabel.font = .systemFont(ofSize: 26, weight: .semibold)
         nameLabel.textColor = SettingsTheme.ink
-        place(nameLabel, y: 45, h: 39)
+        place(nameLabel, y: 43, h: 36)
         currentLabel.font = .systemFont(ofSize: 12)
         currentLabel.textColor = SettingsTheme.secondary
-        place(currentLabel, y: 92, h: 41)
-        place(SettingsTheme.eyebrow(L("01 / 触发方式")), y: 149, h: 16)
+        place(currentLabel, y: 85, h: 20)
+
+        place(triggerEyebrow, y: 122, h: 15)
         triggerPicker.segmentCount = ButtonTrigger.allCases.count
-        triggerPicker.segmentStyle = .separated
-        triggerPicker.selectedSegmentBezelColor = SettingsTheme.forest
-        triggerPicker.segmentDistribution = .fillEqually
-        triggerPicker.font = .systemFont(ofSize: 13, weight: .medium)
+        triggerPicker.font = .systemFont(ofSize: 12.5, weight: .medium)
         for (index, trigger) in ButtonTrigger.allCases.enumerated() {
             triggerPicker.setLabel(trigger.title, forSegment: index)
-            triggerPicker.setWidth(0, forSegment: index)
         }
         triggerPicker.selectedSegment = 0
         triggerPicker.target = self; triggerPicker.action = #selector(triggerChanged)
         triggerPicker.setAccessibilityLabel(L("按键触发方式"))
-        place(triggerPicker, y: 174, h: 35)
-        place(actionLabel, y: 225, h: 16)
+        place(triggerPicker, y: 144, h: 36)
+
+        actionLabel.frame = NSRect(x: 440, y: 198, width: 320, height: 16)
+        addSubview(actionLabel)
+
+        searchBar.frame = NSRect(x: 802, y: 191, width: 196, height: 28)
+        actionSearchField.setStyledPlaceholder(L("搜索动作…"))
+        actionSearchField.target = self
+        actionSearchField.action = #selector(searchFilterChanged)
+        actionSearchField.setAccessibilityLabel(L("搜索按键动作"))
+        actionSearchField.onFocusChange = { [weak self] focused in
+            guard let self else { return }
+            if focused {
+                self.applyActionSearchFilter(showPopupIfNonEmpty: true)
+            } else {
+                self.searchResultsPopup.isHidden = true
+            }
+        }
+        actionSearchField.onMoveSelection = { [weak self] delta in
+            guard let self, !self.searchResultsPopup.isHidden else { return false }
+            self.searchResultsPopup.moveHighlight(by: delta)
+            return true
+        }
+        actionSearchField.onConfirmSelection = { [weak self] in
+            guard let self, !self.searchResultsPopup.isHidden,
+                  let presetIndex = self.searchResultsPopup.highlightedPresetIndex else { return false }
+            self.selectSearchResult(presetIndex: presetIndex)
+            return true
+        }
+        actionSearchField.onEscape = { [weak self] in
+            guard let self else { return false }
+            if !self.actionSearchField.stringValue.isEmpty {
+                self.actionSearchField.stringValue = ""
+                self.applyActionSearchFilter(showPopupIfNonEmpty: false)
+            } else {
+                self.searchResultsPopup.isHidden = true
+                self.window?.makeFirstResponder(nil)
+            }
+            return true
+        }
+        addSubview(searchBar)
+
         actionPicker.autoenablesItems = false
         var group = ""
         // Keep the existing preset indices while placing the mode entry where it is easy to find.
@@ -189,27 +280,45 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         }
         actionPicker.setAccessibilityLabel(L("按键动作"))
         actionPicker.toolTip = L("%@ 个可选项，单击、双击和长按分别设置", String(presets.count))
-        actionPicker.font = .systemFont(ofSize: 14, weight: .medium)
+        actionPicker.font = .systemFont(ofSize: 13.5, weight: .medium)
         actionPicker.target = self; actionPicker.action = #selector(actionChanged)
-        place(actionPicker, y: 250, h: 36)
-        modifierLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        modifierLabel.textColor = SettingsTheme.secondary
-        place(modifierLabel, y: 306, h: 20)
+        place(actionPicker, y: 226, h: 38)
+
+        shortcutRecorder.frame = NSRect(x: 440, y: 278, width: 558, height: 36)
+        shortcutRecorder.onShortcutRecorded = { [weak self] usage, modifiers in
+            guard let self else { return }
+            if let keyIdx = MappingKey.all.firstIndex(where: { $0.usage == usage }) {
+                self.keyPicker.selectItem(at: keyIdx)
+            }
+            let flags = CGEventFlags(rawValue: modifiers)
+            for (button, flag) in self.modifierButtons {
+                button.state = (usage == MappingKey.fnUsage) ? .off : (flags.contains(flag) ? .on : .off)
+            }
+            self.setSelectedBinding(.init(kind: .key, usage: usage, modifiers: usage == MappingKey.fnUsage ? 0 : modifiers))
+            self.updateRemoteButtonStates()
+            self.updateTriggerSegmentIndicators()
+            self.displayOptions()
+            self.refreshStatus()
+        }
+        addSubview(shortcutRecorder)
+
         for (index, entry) in [("⌃ Control", CGEventFlags.maskControl), ("⇧ Shift", .maskShift), ("⌥ Option", .maskAlternate), ("⌘ Command", .maskCommand), ("Fn", .maskSecondaryFn)].enumerated() {
             let button = NSButton(checkboxWithTitle: entry.0, target: self, action: #selector(customChanged))
             button.font = .systemFont(ofSize: 12)
-            button.frame = NSRect(x: 441 + CGFloat(index % 3) * 175, y: 334 + CGFloat(index / 3) * 27, width: 161, height: 23)
+            button.frame = NSRect(x: 441 + CGFloat(index % 3) * 175, y: 320 + CGFloat(index / 3) * 22, width: 161, height: 20)
             addSubview(button); modifierButtons.append((button, entry.1))
         }
         keyPicker.addItems(withTitles: MappingKey.all.map { $0.name })
         keyPicker.autoenablesItems = false
+        keyPicker.font = .systemFont(ofSize: 12.5, weight: .medium)
         keyPicker.setAccessibilityLabel(L("自定义主键"))
         keyPicker.target = self; keyPicker.action = #selector(customChanged)
-        place(keyPicker, y: 391, h: 29)
+        place(keyPicker, y: 366, h: 30)
+
         textEditor.isRichText = false; textEditor.allowsUndo = true
         textEditor.font = .systemFont(ofSize: 14)
         textEditor.textColor = SettingsTheme.ink
-        textEditor.backgroundColor = SettingsTheme.canvas
+        textEditor.backgroundColor = SettingsTheme.subtleFill
         textEditor.insertionPointColor = SettingsTheme.forest
         textEditor.textContainerInset = NSSize(width: 13, height: 12)
         textEditor.isAutomaticQuoteSubstitutionEnabled = false
@@ -223,48 +332,89 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         textScroll.borderType = .noBorder
         textScroll.documentView = textEditor
         textScroll.wantsLayer = true; textScroll.layer?.cornerRadius = 12; textScroll.layer?.masksToBounds = true
-        place(textScroll, y: 306, h: 114)
+        place(textScroll, y: 278, h: 112)
         textEditor.frame = NSRect(origin: .zero, size: textScroll.contentSize)
         textEditor.minSize = NSSize(width: 0, height: textScroll.contentSize.height)
         textEditor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+
         targetLabel.font = .systemFont(ofSize: 12, weight: .medium); targetLabel.textColor = SettingsTheme.secondary
-        place(targetLabel, y: 306, h: 24)
+        place(targetLabel, y: 278, h: 22)
         targetField.delegate = self; targetField.isSelectable = true
         targetField.setAccessibilityLabel(L("应用路径或网页地址"))
         SettingsTheme.style(targetField)
-        place(targetField, y: 341, h: 29)
+        place(targetField, y: 306, h: 30)
         chooseAppButton.target = self; chooseAppButton.action = #selector(chooseApp)
-        place(chooseAppButton, y: 383, h: 35)
-        place(actionPreview, y: 306, h: 114)
-        let help = SettingsPanel(frame: NSRect(x: 440, y: 431, width: 558, height: 68))
-        help.radius = 11; help.fill = SettingsTheme.canvas; help.border = nil; addSubview(help)
+        chooseAppButton.frame = NSRect(x: 440, y: 348, width: 148, height: 34)
+        addSubview(chooseAppButton)
+
+        place(actionPreview, y: 278, h: 112)
+
+        hintPanel.frame = NSRect(x: 440, y: 404, width: 558, height: 68)
+        hintPanel.radius = 12; hintPanel.fill = SettingsTheme.subtleFill; hintPanel.border = nil
+        addSubview(hintPanel)
         hint.textColor = SettingsTheme.secondary; hint.font = .systemFont(ofSize: 11)
-        hint.frame = NSRect(x: 453, y: 440, width: 532, height: 53); addSubview(hint)
+        hint.frame = NSRect(x: 454, y: 414, width: 530, height: 48); addSubview(hint)
+
         saveButton.target = self; saveButton.action = #selector(saveMappings)
-        saveButton.frame = NSRect(x: 440, y: 511, width: 161, height: 38); addSubview(saveButton)
+        saveButton.frame = NSRect(x: 440, y: 488, width: 144, height: 36); addSubview(saveButton)
         resetButton.target = self; resetButton.action = #selector(resetKey)
         resetButton.toolTip = L("恢复此键的单击默认值，并清除双击和长按设置")
-        resetButton.frame = NSRect(x: 611, y: 511, width: 165, height: 38); addSubview(resetButton)
-        liveStatus.font = .systemFont(ofSize: 10); liveStatus.textColor = SettingsTheme.secondary
-        liveStatus.maximumNumberOfLines = 1
-        place(liveStatus, y: 554, h: 16)
+        resetButton.frame = NSRect(x: 592, y: 488, width: 138, height: 36); addSubview(resetButton)
+        discardButton.target = self; discardButton.action = #selector(discardPressed)
+        discardButton.toolTip = L("撤销尚未保存的全部草稿修改")
+        discardButton.frame = NSRect(x: 738, y: 488, width: 110, height: 36); addSubview(discardButton)
         permissionButton.target = self; permissionButton.action = #selector(allowListener)
-        permissionButton.frame = NSRect(x: 786, y: 511, width: 211, height: 38); addSubview(permissionButton)
+        permissionButton.frame = NSRect(x: 856, y: 488, width: 142, height: 36); addSubview(permissionButton)
+
+        liveStatus.font = .systemFont(ofSize: 11, weight: .medium); liveStatus.textColor = SettingsTheme.secondary
+        liveStatus.maximumNumberOfLines = 1
+        liveStatus.lineBreakMode = .byTruncatingTail
+        place(liveStatus, y: 534, h: 17)
+
+        voiceStudio.frame = NSRect(x: 440, y: 122, width: 558, height: 428)
+        voiceStudio.onSettingsChange = { [weak self] in
+            guard let self else { return }
+            if self.selected == 0 {
+                self.currentLabel.stringValue = L("按住说话，松手结束 · 下方选项修改后立即生效")
+            }
+            self.onVoiceSettingsChange?()
+        }
+        addSubview(voiceStudio)
+
+        searchResultsPopup.isHidden = true
+        searchResultsPopup.onSelectPreset = { [weak self] presetIndex in
+            self?.selectSearchResult(presetIndex: presetIndex)
+        }
+        addSubview(searchResultsPopup)
+
         displaySelection()
         captureHorizontalLayout()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        searchResultsPopup.isHidden = true
+        window?.makeFirstResponder(nil)
+        super.mouseDown(with: event)
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
         guard let stage = diagram.superview else { return }
-        diagram.setFrameOrigin(NSPoint(x: (stage.bounds.width - diagram.frame.width) / 2, y: 113))
-        deviceName.setFrameSize(NSSize(width: stage.bounds.width - 46, height: 26))
-        modePicker.setFrameSize(NSSize(width: stage.bounds.width - 48, height: 30))
+        diagram.setFrameOrigin(NSPoint(x: (stage.bounds.width - diagram.frame.width) / 2, y: 120))
+        deviceName.setFrameSize(NSSize(width: stage.bounds.width - 48, height: 25))
+        modePicker.setFrameSize(NSSize(width: stage.bounds.width - 48, height: 34))
         capacity.setFrameSize(NSSize(width: stage.bounds.width - 48, height: 16))
+        searchResultsPopup.frame = NSRect(
+            x: actionPicker.frame.minX,
+            y: 223,
+            width: actionPicker.frame.width,
+            height: searchResultsPopup.frame.height
+        )
     }
 
     func switchProfile() {
         guard displayedProfile != mapping.profile else { return }
+        stopRecordingShortcuts()
         draftCache[displayedProfile] = (normalDrafts, mouseDrafts)
         displayedProfile = mapping.profile
         normalDrafts = draftCache[displayedProfile]?.normal ?? mapping.bindings
@@ -272,6 +422,67 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         selected = displayedProfile == .chromecast ? 8 : 7
         triggerPicker.selectedSegment = 0
         rebuildDiagram()
+        displaySelection()
+    }
+
+    func stopRecordingShortcuts() {
+        shortcutRecorder.stopRecording()
+        voiceStudio.stopRecordingShortcut()
+        searchResultsPopup.isHidden = true
+    }
+
+    func reloadVoiceStudio() {
+        voiceStudio.reloadFromSettings()
+        if selected == 0 {
+            currentLabel.stringValue = voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松手结束 · 下方选项修改后立即生效")
+        }
+    }
+
+    func updateVoiceLevel(_ level: Float, active: Bool, testingOnly: Bool) {
+        voiceStudio.updateLevel(level, active: active, testingOnly: testingOnly)
+    }
+
+    func selectRemoteButton(code: UInt8, pulse: Bool = false) {
+        guard remoteButtons[code] != nil else { return }
+        stopRecordingShortcuts()
+        selected = code
+        displaySelection()
+        if pulse {
+            pulseResetWorkItem?.cancel()
+            for (buttonCode, button) in remoteButtons {
+                button.pulse = buttonCode == code
+            }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                for button in self.remoteButtons.values { button.pulse = false }
+            }
+            pulseResetWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: work)
+        }
+    }
+
+    @discardableResult
+    func saveAndApply() -> Bool {
+        let invalid = [normalDrafts, mouseDrafts].flatMap { values in
+            mapping.buttons.compactMap { button -> String? in
+                values[String(button.code)]?.validationMessage(for: mapping.profile)
+            }
+        }.first
+        guard invalid == nil else {
+            refreshStatus()
+            return false
+        }
+        mapping.save(normalDrafts, mouse: mouseDrafts)
+        displaySelection()
+        return !hasUnsavedChanges
+    }
+
+    func discardDrafts() {
+        stopRecordingShortcuts()
+        let prefix = "\(displayedProfile.rawValue)."
+        preferredPresetIndices = preferredPresetIndices.filter { !$0.key.hasPrefix(prefix) }
+        normalDrafts = mapping.bindings
+        mouseDrafts = mapping.mouseBindings
         displaySelection()
     }
 
@@ -305,16 +516,15 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
             diagram.addSubview(button); remoteButtons[code] = button
         }
         if mapping.profile == .chromecast {
-        let volume = NSTextField(labelWithString: L("音量"))
-        volume.font = .systemFont(ofSize: 11); volume.textColor = SettingsTheme.color(0xB7C6AE)
-        volume.frame = NSRect(x: 250, y: 132, width: 40, height: 18); diagram.addSubview(volume)
+            let volume = NSTextField(labelWithString: L("音量"))
+            volume.font = .systemFont(ofSize: 11); volume.textColor = SettingsTheme.color(0xB7C6AE)
+            volume.frame = NSRect(x: 250, y: 132, width: 40, height: 18); diagram.addSubview(volume)
         }
         let brand = NSTextField(labelWithString: mapping.profile == .chromecast ? "Chromecast" : L("小米 RC003"))
-        brand.font = .systemFont(ofSize: 12, weight: .medium); brand.textColor = .secondaryLabelColor
+        brand.font = .systemFont(ofSize: 12, weight: .medium); brand.textColor = SettingsTheme.color(0x6B756A)
         brand.alignment = .center; brand.frame = NSRect(x: 74, y: 478, width: 133, height: 20); diagram.addSubview(brand)
-        deviceName.stringValue = mapping.profile == .chromecast ? "Google Chromecast" : "Xiaomi RC003"
-        capacity.stringValue = L("%@ KEYS   /   最多 %@ 个动作位", String(mapping.buttons.count), String(mapping.buttons.count * 3))
-
+        deviceName.stringValue = mapping.profile == .chromecast ? "Google Chromecast" : L("小米 RC003")
+        capacity.stringValue = L("点选图中按键，或直接按遥控器选键")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -326,6 +536,9 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
     private var selectedButton: MappedButton? { mapping.buttons.first { $0.code == selected } }
     private var selectedTrigger: ButtonTrigger { ButtonTrigger.allCases[triggerPicker.selectedSegment] }
     private var selectedPresetIndex: Int { actionPicker.selectedItem?.tag ?? 0 }
+    private var selectionSlotKey: String {
+        "\(displayedProfile.rawValue).\(editingMouse ? "m" : "n").\(selected).\(selectedTrigger.rawValue)"
+    }
     private func presetItem(_ index: Int) -> NSMenuItem? {
         actionPicker.itemArray.first { !$0.isSeparatorItem && !$0.isSectionHeader && $0.tag == index }
     }
@@ -342,35 +555,183 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         drafts[String(selected)] = configuration
     }
 
-    @objc private func selectKey(_ sender: NSButton) { selected = UInt8(sender.tag); displaySelection() }
-    @objc private func triggerChanged() { displaySelection() }
+    @objc private func selectKey(_ sender: NSButton) {
+        stopRecordingShortcuts()
+        selected = UInt8(sender.tag)
+        displaySelection()
+    }
+    @objc private func triggerChanged() {
+        stopRecordingShortcuts()
+        displaySelection()
+    }
     @objc private func modeChanged() {
+        stopRecordingShortcuts()
         triggerPicker.selectedSegment = 0
         displaySelection()
     }
+    @objc private func searchFilterChanged() {
+        applyActionSearchFilter(showPopupIfNonEmpty: true)
+    }
 
-    private func displaySelection() {
+    func selectSearchResult(presetIndex: Int) {
+        guard let item = presetItem(presetIndex), item.isEnabled else { return }
+        actionSearchField.stringValue = ""
+        applyActionSearchFilter(showPopupIfNonEmpty: false)
+        window?.makeFirstResponder(nil)
+        actionPicker.select(item)
+        actionChanged()
+    }
+    @objc private func discardPressed() {
+        discardDrafts()
+    }
+
+    private func updateRemoteButtonStates() {
         for (code, button) in remoteButtons {
             button.selected = code == selected
             if let physical = mapping.buttons.first(where: { $0.code == code }) {
-                button.toolTip = "\(physical.name) → \(KeyMapping.binding(physical, normal: normalDrafts, mouse: mouseDrafts, inMouseMode: editingMouse).summary)"
+                let draftConfig = KeyMapping.binding(physical, normal: normalDrafts, mouse: mouseDrafts, inMouseMode: editingMouse)
+                let savedConfig = mapping.binding(physical, mouse: editingMouse)
+                button.dirty = draftConfig != savedConfig
+                button.toolTip = "\(physical.name) → \(draftConfig.summary)"
             } else {
-                button.toolTip = voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松开结束")
+                button.dirty = false
+                button.toolTip = voiceToggle ? L("按一下开始，再按一下结束。") : L("语音键 · 按住说话，点击查看语音输入设置")
                 button.setAccessibilityLabel(voiceToggle ? L("语音键，按一下开始或结束录音") : L("语音键，按住说话"))
             }
         }
+    }
+
+    private func updateTriggerSegmentIndicators() {
+        guard let physical = selectedButton else {
+            triggerPicker.configuredSegments = []
+            return
+        }
+        let defaultSingle = editingMouse ? KeyMapping.mouseDefault(physical.code) : physical.initial
+        let config = selectedConfiguration
+        var configured = Set<Int>()
+        for (index, trigger) in ButtonTrigger.allCases.enumerated() {
+            switch trigger {
+            case .singleClick:
+                if config.singleClick != defaultSingle { configured.insert(index) }
+            case .doubleClick:
+                if config.doubleClick != nil { configured.insert(index) }
+            case .longPress:
+                if config.longPress != nil { configured.insert(index) }
+            }
+        }
+        triggerPicker.configuredSegments = configured
+    }
+
+    private func applyActionSearchFilter(showPopupIfNonEmpty: Bool = false) {
+        guard let menu = actionPicker.menu else { return }
+        let query = actionSearchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceIndex = presets.firstIndex { $0.binding?.kind == .remoteVoice }
+        var scoredMatches: [(score: Int, order: Int, item: ActionSearchResultItem)] = []
+        var itemOrder = 0
+
+        for item in menu.items {
+            if item.isSectionHeader || item.isSeparatorItem {
+                item.isHidden = false
+                continue
+            }
+            let idx = item.tag
+            var baseHidden = false
+            if idx == voiceIndex && mapping.profile != .chromecast { baseHidden = true }
+            if presets.indices.contains(idx), presets[idx].binding?.kind == .toggleMouseMode, editingMouse && !reservedToggle {
+                baseHidden = true
+            }
+            if baseHidden {
+                item.isHidden = true
+            } else if query.isEmpty {
+                item.isHidden = false
+            } else if presets.indices.contains(idx) {
+                let preset = presets[idx]
+                if let score = ActionCatalog.searchScore(for: preset, displayedTitle: item.title, query: query) {
+                    item.isHidden = false
+                    if item.isEnabled {
+                        scoredMatches.append((
+                            score: score,
+                            order: itemOrder,
+                            item: ActionSearchResultItem(presetIndex: idx, title: item.title, group: preset.group)
+                        ))
+                    }
+                } else {
+                    item.isHidden = item !== actionPicker.selectedItem
+                }
+            }
+            itemOrder += 1
+        }
+        if !query.isEmpty {
+            var sectionHeader: NSMenuItem?
+            var sectionHasVisible = false
+            for item in menu.items {
+                if item.isSeparatorItem {
+                    item.isHidden = true
+                } else if item.isSectionHeader {
+                    if let prevHeader = sectionHeader { prevHeader.isHidden = !sectionHasVisible }
+                    sectionHeader = item
+                    sectionHasVisible = false
+                } else if !item.isHidden {
+                    sectionHasVisible = true
+                }
+            }
+            if let lastHeader = sectionHeader { lastHeader.isHidden = !sectionHasVisible }
+        }
+
+        let voice = selected == 0
+        if !query.isEmpty && !voice && !reservedToggle && showPopupIfNonEmpty {
+            scoredMatches.sort {
+                if $0.score != $1.score { return $0.score > $1.score }
+                return $0.order < $1.order
+            }
+            let customIdx = presets.count - 1
+            let fallback = ActionSearchResultItem(presetIndex: customIdx, title: presets[customIdx].title, group: presets[customIdx].group)
+            searchResultsPopup.update(
+                matches: scoredMatches.map(\.item),
+                fallbackCustom: fallback,
+                x: actionPicker.frame.minX,
+                y: 223,
+                width: actionPicker.frame.width
+            )
+            searchResultsPopup.isHidden = false
+        } else if query.isEmpty || voice || reservedToggle {
+            searchResultsPopup.isHidden = true
+        }
+    }
+
+    private func displaySelection() {
+        updateRemoteButtonStates()
         let voice = selected == 0
         if voice && voiceToggle { triggerPicker.selectedSegment = 0 }
+        studioEyebrow.stringValue = voice ? L("语音输入") : L("当前按键")
         nameLabel.stringValue = selectedButton?.name ?? L("语音键")
         triggerPicker.isEnabled = !voice
+        actionPicker.isEnabled = !voice && !reservedToggle
+        resetButton.isEnabled = !voice && !reservedToggle
+
+        voiceStudio.isHidden = !voice
+        triggerEyebrow.isHidden = voice
+        triggerPicker.isHidden = voice
+        actionLabel.isHidden = voice
+        actionPicker.isHidden = voice
+        searchBar.isHidden = voice || reservedToggle
+        hintPanel.isHidden = voice
+        hint.isHidden = voice
+        saveButton.isHidden = voice
+        resetButton.isHidden = voice
+        discardButton.isHidden = voice || !hasUnsavedChanges
+        liveStatus.isHidden = voice
+
+        if voice { voiceStudio.reloadFromSettings() }
+
+        updateTriggerSegmentIndicators()
         presetItem(0)?.title = selectedTrigger == .singleClick ? L("原按键功能") : L("未设置")
         presetItem(2)?.title = selectedTrigger == .longPress ? L("Fn 按键（长按后保持）") : presets[2].title
         presetItem(2)?.isEnabled = selectedTrigger != .doubleClick
         if let voiceIndex = presets.firstIndex(where: { $0.binding?.kind == .remoteVoice }), let item = presetItem(voiceIndex) {
             item.isHidden = mapping.profile != .chromecast
             item.isEnabled = selectedTrigger != .doubleClick
-            item.title = selectedTrigger == .longPress ? L("遥控器麦克风（长按后开麦）") :
-                voiceToggle ? L("遥控器麦克风（点按开关）") : presets[voiceIndex].title
+            item.title = selectedTrigger == .longPress ? L("遥控器麦克风（长按后开麦）") : presets[voiceIndex].title
         }
         for (index, preset) in presets.enumerated() {
             if preset.binding?.kind == .toggleMouseMode {
@@ -382,104 +743,130 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         keyPicker.item(at: 0)?.isEnabled = selectedTrigger != .doubleClick
         let value = selectedBinding
         let unset = selectedTrigger != .singleClick && selectedConfiguration[selectedTrigger] == nil
-        actionPicker.select(presetItem(unset ? 0 : ActionCatalog.index(for: value)))
+        let targetIndex = ActionCatalog.index(for: value, preferredIndex: preferredPresetIndices[selectionSlotKey])
+        actionPicker.select(presetItem(unset ? 0 : targetIndex))
+        applyActionSearchFilter(showPopupIfNonEmpty: searchBar.isEditingSearch)
         textEditor.string = value.text ?? ""
         targetField.stringValue = value.kind == .openApp ? value.appPath ?? "" : value.url ?? ""
-        actionPicker.isEnabled = !voice && !reservedToggle; resetButton.isEnabled = !voice && !reservedToggle
         keyPicker.selectItem(at: MappingKey.all.firstIndex { $0.usage == value.usage } ?? 0)
         for (button, flag) in modifierButtons { button.state = CGEventFlags(rawValue: value.modifiers).contains(flag) ? .on : .off }
-        capacity.stringValue = editingMouse ? L("独立鼠标键位 · 切换键在普通键位设置") :
-            L("选择按键，可将动作设为“切换鼠标模式”")
+        shortcutRecorder.allowFnOnly = selectedTrigger != .doubleClick
+        shortcutRecorder.usage = value.usage
+        shortcutRecorder.modifiers = value.modifiers
+        capacity.stringValue = editingMouse ? L("正在编辑鼠标键位 · 进出键请在「普通键位」设置") :
+            L("点选图中按键，或直接按遥控器选键")
         capacity.toolTip = capacity.stringValue
         displayOptions()
         refreshStatus()
     }
 
     private func displayOptions() {
-        currentLabel.stringValue = selected == 0 ? (voiceToggle ? L("遥控器麦克风 · 点按开关") : L("遥控器麦克风 · 按住说话")) :
-            L("已保存 · %@：%@", selectedTrigger.title, mapping.binding(selectedButton!, mouse: editingMouse)[selectedTrigger].map(ActionCatalog.displayName) ?? L("未设置"))
+        if selected == 0 {
+            currentLabel.stringValue = voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松手结束 · 下方选项修改后立即生效")
+        } else {
+            let saved = mapping.binding(selectedButton!, mouse: editingMouse)
+            let savedParts = ButtonTrigger.allCases.compactMap { trigger in
+                saved[trigger].map { "\(trigger.title)：\(ActionCatalog.displayName($0))" }
+            }.joined(separator: "  ·  ")
+            currentLabel.stringValue = L("当前生效 · %@", savedParts)
+        }
         currentLabel.toolTip = currentLabel.stringValue
 
         if let selectedButton { remoteButtons[selected]?.toolTip = "\(selectedButton.name) → \(selectedConfiguration.summary)" }
-        let custom = selected != 0 && selectedPresetIndex == presets.count - 1
-        modifierLabel.isHidden = !custom; keyPicker.isHidden = !custom
+        let voice = selected == 0
+        let custom = !voice && selectedPresetIndex == presets.count - 1
+        if !custom { shortcutRecorder.stopRecording() }
+        shortcutRecorder.isHidden = !custom
+        keyPicker.isHidden = !custom
         modifierButtons.forEach { $0.0.isHidden = !custom; $0.0.isEnabled = !selectedBinding.isFn }
-        textScroll.isHidden = selected == 0 || selectedBinding.kind != .text
+        textScroll.isHidden = voice || selectedBinding.kind != .text
         let hasEditor = custom || selectedBinding.kind == .text || selectedBinding.kind == .openApp || selectedBinding.kind == .openURL
-        actionPreview.isHidden = hasEditor
+        actionPreview.isHidden = voice || hasEditor
         actionPreview.binding = selectedConfiguration[selectedTrigger]
-        actionPreview.voice = selected == 0 || selectedBinding.kind == .remoteVoice
-        actionPreview.voiceToggle = voiceToggle
-        let app = selected != 0 && selectedBinding.kind == .openApp
-        let webpage = selected != 0 && selectedBinding.kind == .openURL
+        actionPreview.voice = voice || selectedBinding.kind == .remoteVoice
+        actionPreview.hasGestures = selectedConfiguration.hasGestures
+        let app = !voice && selectedBinding.kind == .openApp
+        let webpage = !voice && selectedBinding.kind == .openURL
         targetLabel.isHidden = !app && !webpage
         targetField.isHidden = !app && !webpage
         targetLabel.stringValue = app ? L("要打开的 Mac 应用") : L("要打开的网页地址")
         targetField.isEditable = webpage
         targetField.placeholderString = app ? L("点击下方按钮选择 .app") : "https://example.com"
         chooseAppButton.isHidden = !app
-        if reservedToggle {
-            hint.stringValue = L("此键的模式切换手势在两种模式中都保留。\n可切换上方手势查看；请在“普通键位”中修改。")
+        if !voice, let error = selectedConfiguration.validationMessage(for: mapping.profile) {
+            hint.stringValue = error
+            return
+        }
+        let unset = !voice && selectedTrigger != .singleClick && selectedConfiguration[selectedTrigger] == nil
+        var primaryHint: String
+        var replacesWithGestureSummary = false
+        if voice {
+            primaryHint = ""
+        } else if reservedToggle {
+            primaryHint = L("此键用于进出鼠标模式，在鼠标模式下固定保留。\n如需更换切换键，请切回左侧「普通键位」修改。")
+        } else if unset {
+            primaryHint = L("未设置%@动作时，单按会立即响应，不会产生等待延迟。", selectedTrigger.title)
         } else if selectedBinding.kind == .toggleMouseMode {
-            hint.stringValue = L("用此键的%@切换模式；松开所有键后生效。\n再次使用相同手势退出。鼠标键位会保留此键的所有手势。", selectedTrigger.title)
+            primaryHint = L("用此键的%@进入鼠标模式，再按一次退出；进入后的指针移动和左右键可在左侧「鼠标键位」单独设置。", selectedTrigger.title)
         } else if selectedBinding.isMouseMovement {
-            hint.stringValue = L("按住持续移动，松开立即停止；长按移动逐渐加速。\n可同时按两个方向斜向移动。")
+            primaryHint = L("切换到鼠标模式后生效；可同时按住两个方向键斜向移动。")
         } else if selectedBinding.isMouseAction {
-            hint.stringValue = L("在指针当前位置点击一次，按住不会重复点击。\n连续按两次左键可双击。")
-        } else if selected == 0 {
-            hint.stringValue = voiceToggle ? L("语音键按一下开始，再按一下结束。") : L("使用%@遥控器自带麦克风，按住收音、松开结束。\n", mapping.profile.title) +
-                (mapping.profile == .chromecast ? L("普通键也可选择“遥控器麦克风”动作（需 ATVV 1.0）。") : L("小米目前仅支持原语音键开启麦克风。"))
-        }
-        else if selectedBinding.kind == .remoteVoice {
-            hint.stringValue = voiceToggle ? L("触发后持续收音，再按一次该键结束。需要 Google ATVV 1.0。") : selectedTrigger == .longPress ?
-                L("按住约 0.55 秒后开启 Google 遥控器麦克风，松开结束。\n需要 ATVV 1.0；旧协议请使用原语音键。") :
-                L("按下开启 Google 遥控器麦克风，松开结束。\n需要 ATVV 1.0；旧协议请使用原语音键。")
-        }
-        else if selectedBinding.isFn {
-            hint.stringValue = selectedTrigger == .longPress ?
-                L("仅模拟 Fn：长按约 0.55 秒后保持，松开释放。\n使用目标软件选择的麦克风，不开启遥控器麦克风。") :
-                L("仅模拟 Fn：按住保持，松开释放。\n使用目标软件选择的麦克风，不开启遥控器麦克风。")
-        }
-        else if selectedBinding.kind == .text {
-            hint.stringValue = L("先将光标放入目标输入框，再按遥控器。\n按一次粘贴一次，不发送回车；文本保存在本机。")
-        }
-        else if app {
-            hint.stringValue = L("按一次打开并激活所选应用，已运行时切换到它。\n每个按键、每种触发方式可选择不同应用。")
-        } else if webpage {
-            hint.stringValue = L("按一次交给默认浏览器打开，可能新建标签页。\n支持 http:// 和 https:// 地址。")
-        } else if selectedBinding.kind == .systemKey {
-            hint.stringValue = L("发送一次系统音量、亮度或媒体按键。\n亮度取决于显示器支持，播放控制取决于当前媒体应用。")
-        }
-        else if selectedBinding.kind == .nextDisplay {
-            hint.stringValue = L("切到下一块屏幕的可见窗口，鼠标随之移入。\n不移动窗口，不切换桌面空间；按一次切换一次。")
-        } else if selectedBinding.kind == .nextWindow {
-            hint.stringValue = L("在当前屏幕的可见普通窗口间循环。\n跳过最小化窗口；按一次切换一次。")
+            primaryHint = L("连按两次左键可触发双击；按住左键不会连续连点。")
+        } else if selectedBinding.kind == .remoteVoice {
+            primaryHint = selectedTrigger == .longPress ?
+                L("仅支持新版 Google 遥控器（ATVV 1.0）；旧款请直接使用原语音键。") :
+                L("仅支持新版 Google 遥控器（ATVV 1.0）；如需短按做别的事，可把开麦改绑到「长按」。")
         } else if selectedBinding.appSwitcherReverse != nil {
-            hint.stringValue = L("← → 选择应用，OK 确认，返回取消。")
+            primaryHint = L("← → 选择应用，OK 确认，返回取消。")
+        } else if selectedBinding.isFn {
+            primaryHint = L("适合触发系统听写或输入法切换；若要用遥控器自带麦克风说话，请改选「遥控器麦克风」。")
+        } else if selectedBinding.kind == .text {
+            primaryHint = L("先把光标点进目标输入框再按遥控器：自动粘贴上方内容，不按回车，也不覆盖原有剪贴板。")
+        } else if app {
+            primaryHint = L("按下后启动所选应用；如果应用已在运行，则直接切到最前。")
+        } else if webpage {
+            primaryHint = L("按下后使用默认浏览器打开上方网址（需包含 https:// 或 http://）。")
         } else if custom {
-            hint.stringValue = L("可多选修饰键，例如 Control + Shift + ↑。\n按一次发送一次；实际用途由当前软件决定。")
-        } else if selectedBinding.kind == .key {
-            hint.stringValue = L("发送 %@ 到当前应用。\n终端 / Codex CLI 中，请按屏幕提示选择；Tab、Enter、Esc 的作用随当前界面变化。", selectedBinding.title)
+            primaryHint = L("点一下上方录制框直接按键盘录入，也可手动勾选修饰键与主键；按一次发送一次。")
+        } else if selectedBinding.kind == .systemKey {
+            primaryHint = L("外接显示器若不支持系统亮度控制，亮度键可能无响应；播放键作用于当前媒体软件。")
+        } else if selectedBinding.kind == .nextDisplay {
+            primaryHint = L("仅在连接多台显示器时生效；不会搬动窗口位置，也不会切换全屏桌面空间。")
+        } else if selectedBinding.kind == .nextWindow {
+            primaryHint = L("仅切换当前这块屏幕上的普通窗口；其他屏幕和已最小化的窗口不受影响。")
+        } else if selectedBinding.kind == .disabled {
+            primaryHint = L("常用于配合双击或长按：把单击设为「不执行」，即可单按无反应、只响应双击或长按。")
         } else {
-            hint.stringValue = L("切换按键后，未保存的修改也会保留。\n点击「保存并生效」后一起应用并记住。")
+            replacesWithGestureSummary = true
+            primaryHint = L("可在上方切到「双击」或「长按」，为同一个按键增加更多动作；改完点「保存并生效」。")
         }
-        if selected != 0 {
-            if let error = selectedConfiguration.validationMessage(for: mapping.profile) {
-                hint.stringValue = error
-            } else if selectedConfiguration.hasGestures || selectedTrigger != .singleClick {
-                var timing = selectedConfiguration.doubleClick != nil ?
-                    L("双击间隔 0.3 秒；单击松开后等待。") : L("短按松开即触发单击。")
-                if selectedConfiguration.longPress != nil { timing += L("长按 0.55 秒。") }
-                hint.stringValue += "\n" + (selectedConfiguration.hasGestures ? timing + L("不连发。") : L("未设置时不识别此手势，单击保持原有响应。"))
+        if !voice, selectedConfiguration.hasGestures {
+            let gestureNote: String
+            if selectedConfiguration.doubleClick != nil && selectedConfiguration.longPress != nil {
+                gestureNote = L("已启用多手势：连按两次触发双击（单按松手约 0.3 秒响应），按住约半秒触发长按。")
+            } else if selectedConfiguration.doubleClick != nil {
+                gestureNote = L("已启用双击：连按两次触发双击；单按会在松手约 0.3 秒确认无第二下后响应。")
+            } else {
+                gestureNote = L("已启用长按：短按松手立即触发单击，按住约半秒触发长按。")
             }
+            hint.stringValue = (replacesWithGestureSummary || unset) ? gestureNote : (primaryHint + "\n" + gestureNote)
+        } else {
+            hint.stringValue = primaryHint
         }
     }
 
     @objc private func actionChanged() {
         guard selectedButton != nil else { return }
+        stopRecordingShortcuts()
         if selectedTrigger != .singleClick && selectedPresetIndex == 0 {
+            preferredPresetIndices.removeValue(forKey: selectionSlotKey)
             setSelectedBinding(nil)
         } else if let value = presets[selectedPresetIndex].binding {
+            if presets[selectedPresetIndex].isAlias {
+                preferredPresetIndices[selectionSlotKey] = selectedPresetIndex
+            } else {
+                preferredPresetIndices.removeValue(forKey: selectionSlotKey)
+            }
             var next = value
             if next.kind == .text { next.text = selectedBinding.text ?? "" }
             if next.kind == .openApp { next.appPath = selectedBinding.appPath }
@@ -488,6 +875,7 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
             textEditor.string = next.text ?? ""
             targetField.stringValue = next.kind == .openApp ? next.appPath ?? "" : next.url ?? ""
         } else {
+            preferredPresetIndices.removeValue(forKey: selectionSlotKey)
             let current = selectedBinding
             if current.kind == .key {
                 keyPicker.selectItem(at: MappingKey.all.firstIndex { $0.usage == current.usage } ?? 0)
@@ -497,17 +885,27 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
                 modifierButtons.forEach { $0.0.state = .off }
             }
             customChanged()
+            return
         }
-        displayOptions(); refreshStatus()
+        updateRemoteButtonStates()
+        updateTriggerSegmentIndicators()
+        displayOptions()
+        refreshStatus()
     }
 
     @objc private func customChanged() {
-        if MappingKey.all[keyPicker.indexOfSelectedItem].usage == MappingKey.fnUsage {
+        let usage = MappingKey.all[keyPicker.indexOfSelectedItem].usage
+        if usage == MappingKey.fnUsage {
             modifierButtons.forEach { $0.0.state = .off }
         }
         let flags = modifierButtons.filter { $0.0.state == .on }.reduce(UInt64(0)) { $0 | $1.1.rawValue }
-        setSelectedBinding(.init(kind: .key, usage: MappingKey.all[keyPicker.indexOfSelectedItem].usage, modifiers: flags))
-        displayOptions(); refreshStatus()
+        shortcutRecorder.usage = usage
+        shortcutRecorder.modifiers = flags
+        setSelectedBinding(.init(kind: .key, usage: usage, modifiers: flags))
+        updateRemoteButtonStates()
+        updateTriggerSegmentIndicators()
+        displayOptions()
+        refreshStatus()
     }
 
     func textDidChange(_ notification: Notification) {
@@ -515,6 +913,7 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         var value = selectedBinding
         value.text = textEditor.string
         setSelectedBinding(value)
+        updateRemoteButtonStates()
         refreshStatus()
     }
 
@@ -523,7 +922,9 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         var value = selectedBinding
         value.url = targetField.stringValue
         setSelectedBinding(value)
-        displayOptions(); refreshStatus()
+        updateRemoteButtonStates()
+        displayOptions()
+        refreshStatus()
     }
 
     @objc private func chooseApp() {
@@ -548,13 +949,14 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
     }
 
     @objc private func saveMappings() {
-        mapping.save(normalDrafts, mouse: mouseDrafts)
-        displaySelection()
+        _ = saveAndApply()
     }
 
     // Import/restore changes only the drafts; Save and Apply remains explicit.
     func importConfiguration(_ data: Data) throws {
         let archive = try MappingArchive.read(data, for: displayedProfile)
+        let prefix = "\(displayedProfile.rawValue)."
+        preferredPresetIndices = preferredPresetIndices.filter { !$0.key.hasPrefix(prefix) }
         normalDrafts = archive.normal; mouseDrafts = archive.mouse
         displaySelection()
     }
@@ -598,14 +1000,19 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
 
     func restoreConfiguration() {
         guard let backup = mapping.configurationBackup() else { liveStatus.stringValue = L("暂无可用的配置备份"); return }
+        let prefix = "\(displayedProfile.rawValue)."
+        preferredPresetIndices = preferredPresetIndices.filter { !$0.key.hasPrefix(prefix) }
         normalDrafts = backup.normal; mouseDrafts = backup.mouse
         displaySelection()
         liveStatus.stringValue = L("配置已载入草稿，请检查后点击“保存并生效”")
-        liveStatus.toolTip = liveStatus.stringValue
+        self.liveStatus.toolTip = liveStatus.stringValue
     }
 
     @objc private func resetKey() {
         guard selectedButton != nil, !reservedToggle else { return }
+        stopRecordingShortcuts()
+        let prefix = "\(displayedProfile.rawValue).\(editingMouse ? "m" : "n").\(selected)."
+        preferredPresetIndices = preferredPresetIndices.filter { !$0.key.hasPrefix(prefix) }
         drafts.removeValue(forKey: String(selected))
         displaySelection()
     }
@@ -623,17 +1030,33 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
     }
 
     func refreshStatus() {
-        let dirty = normalDrafts != mapping.bindings || mouseDrafts != mapping.mouseBindings
+        let dirty = hasUnsavedChanges
+        let currentInvalid = selected == 0 ? nil : selectedConfiguration.validationMessage(for: mapping.profile)
         let invalid = [normalDrafts, mouseDrafts].flatMap { values in
             mapping.buttons.compactMap { button -> String? in
                 values[String(button.code)]?.validationMessage(for: mapping.profile).map { "\(button.name)：\($0)" }
             }
         }.first
-        liveStatus.stringValue = invalid ?? mapping.configurationNotice ?? (dirty ? L("有未保存的修改") : mapping.status)
+        let voice = selected == 0
+        saveButton.isHidden = voice
+        discardButton.isHidden = voice || !dirty
+        liveStatus.isHidden = voice
+        if let invalid {
+            liveStatus.stringValue = currentInvalid != nil ? L("请先补全或修正上方提示项后再保存") : invalid
+            liveStatus.textColor = SettingsTheme.error
+        } else if let notice = mapping.configurationNotice {
+            liveStatus.stringValue = notice
+            liveStatus.textColor = SettingsTheme.warning
+        } else if dirty {
+            liveStatus.stringValue = L("有未保存的键位修改，点击「保存并生效」后启用")
+            liveStatus.textColor = SettingsTheme.warning
+        } else {
+            liveStatus.stringValue = mapping.status
+            liveStatus.textColor = SettingsTheme.secondary
+        }
         liveStatus.toolTip = liveStatus.stringValue
-        liveStatus.textColor = invalid == nil ? SettingsTheme.secondary : SettingsTheme.error
-        hint.textColor = selectedConfiguration.validationMessage == nil ? SettingsTheme.secondary : SettingsTheme.error
-        permissionButton.isHidden = (mapping.listeningAllowed && AXIsProcessTrusted()) ||
+        hint.textColor = currentInvalid == nil ? SettingsTheme.secondary : SettingsTheme.error
+        permissionButton.isHidden = voice || (mapping.listeningAllowed && AXIsProcessTrusted()) ||
             !mapping.buttons.contains { KeyMapping.binding($0, normal: normalDrafts, mouse: mouseDrafts, inMouseMode: editingMouse).usesListener }
         permissionButton.title = !mapping.listeningAllowed ? L("允许输入监控") : L("允许辅助功能")
         saveButton.isEnabled = invalid == nil && (dirty || mapping.needsApply || mapping.configurationNotice != nil)

@@ -41,6 +41,7 @@ jobs:
           zsh Tests/test-remote-voice.sh
           zsh Tests/test-bluetooth-timers.sh
           zsh Tests/test-audio-pipeline.sh
+          zsh Tests/preview-design.sh ci-check
       - name: Build and package (macOS 15+)
         run: |
           zsh Scripts/build-app.sh
@@ -63,6 +64,11 @@ jobs:
           path: |
             build/share/*.zip
             build/share/SHA256SUMS-${{ matrix.chip }}.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Design-Previews-${{ matrix.chip }}
+          path: build/design/ci-check/*.png
           if-no-files-found: error
 
   release-assets:
