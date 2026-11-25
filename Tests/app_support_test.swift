@@ -1,4 +1,5 @@
 import Foundation
+import ApplicationServices
 
 private final class FakeLaunchService: LaunchAtLoginService {
     var state: LaunchAtLoginState = .notRegistered
