@@ -696,8 +696,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
                 alert.informativeText += "\n\n" + L("语音键按一下开始，再按一下结束；松手不会结束。结束后等待文字出现。")
             }
         } else {
-        alert.messageText = L("微信全局语音输入设置步骤")
-        alert.informativeText = L("1. 打开 Mac 微信「设置 → 通用」，开启「长按 Fn 进行全局语音输入」，并在系统隐私设置中允许微信使用麦克风。\n2. 将微信的语音输入设备设为「系统默认」或「Chromecast Mic」。\n3. 点击任意软件的输入框，按住遥控器语音键说话，松手即可出字。\n\n注：语音识别由微信完成，Remote Vibe 只负责把遥控器声音送入虚拟麦克风并触发快捷键，不会读取语音或文字内容。")
+            alert.messageText = L("微信全局语音输入设置步骤")
+            alert.informativeText = L("1. 打开 Mac 微信「设置 → 通用」，开启「长按 Fn 进行全局语音输入」，并在系统隐私设置中允许微信使用麦克风。\n2. 将微信的语音输入设备设为「系统默认」或「Chromecast Mic」。\n3. 点击任意软件的输入框，按住遥控器语音键说话，松手即可出字。\n\n注：语音识别由微信完成，Remote Vibe 只负责把遥控器声音送入虚拟麦克风并触发快捷键，不会读取语音或文字内容。")
         }
         alert.addButton(withTitle: L("知道了"))
         alert.beginSheetModal(for: window)

@@ -79,7 +79,7 @@ enum DesignPreview {
                 permission: NSTextField(wrappingLabelWithString: L("系统权限：已全部开启")),
                 permissionsButton: permsBtn,
                 message: NSTextField(wrappingLabelWithString: L("关闭此窗口后，Remote Vibe 仍会在菜单栏后台运行。")),
-                readiness: NSTextField(labelWithString: L("已就绪 · 点击任意输入框，按住遥控器语音键即可说话")),
+                readiness: NSTextField(labelWithString: profile == .chromecast ? L("已就绪 · 语音键按一下开始，再按一下结束") : L("已就绪 · 点击任意输入框，按住遥控器语音键即可说话")),
                 wechatButton: SettingsTheme.secondaryButton(L("微信语音指南")), voiceActivation: activation)
             shell.appearance = NSAppearance(named: .aqua)
             let window = NSWindow(contentRect: shell.bounds, styleMask: [.titled, .resizable], backing: .buffered, defer: false)

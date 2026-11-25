@@ -375,7 +375,7 @@ final class KeyMappingView: SettingsPage, NSTextViewDelegate, NSTextFieldDelegat
         voiceStudio.onSettingsChange = { [weak self] in
             guard let self else { return }
             if self.selected == 0 {
-                self.currentLabel.stringValue = L("按住说话，松手结束 · 下方选项修改后立即生效")
+                self.currentLabel.stringValue = self.voiceToggle ? L("按一下开始，再按一下结束。") : L("按住说话，松手结束 · 下方选项修改后立即生效")
             }
             self.onVoiceSettingsChange?()
         }
